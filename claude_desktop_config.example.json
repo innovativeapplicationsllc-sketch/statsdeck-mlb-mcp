@@ -1,0 +1,30 @@
+{
+  "_comment": "Add the 'mlb-fantasy' block to your existing claude_desktop_config.json.",
+  "_comment_wsl": "If Claude Desktop runs on Windows but this server is in WSL, use option B or C below.",
+
+  "mcpServers": {
+    "mlb-fantasy": {
+      "_option_A_native_comment": "Use this if server and Claude Desktop are on the same OS (Linux/Mac)",
+      "command": "/home/innov/mlb-fantasy-mcp/.venv/bin/python",
+      "args": ["/home/innov/mlb-fantasy-mcp/server/main.py"],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      }
+    },
+
+    "mlb-fantasy-wsl": {
+      "_option_B_wsl_comment": "Use this for Windows Claude Desktop + WSL server via wsl.exe",
+      "command": "wsl.exe",
+      "args": [
+        "--",
+        "/home/innov/mlb-fantasy-mcp/.venv/bin/python",
+        "/home/innov/mlb-fantasy-mcp/server/main.py"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  },
+
+  "_option_C_http": "Run 'MCP_TRANSPORT=http python server/main.py' in WSL, then add to Claude Desktop as an SSE/HTTP MCP server at http://localhost:8000"
+}
