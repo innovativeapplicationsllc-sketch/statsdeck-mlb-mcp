@@ -1,6 +1,6 @@
-# MLB Fantasy MCP Server
+# StatsDeck — MLB Fantasy MCP Server
 
-An MCP (Model Context Protocol) server that gives Claude live MLB data for fantasy baseball analysis. Chat with Claude to get player stats, Statcast metrics, probable pitchers, injuries, and head-to-head matchups.
+An MCP (Model Context Protocol) server that gives Claude live MLB data and embedded fantasy baseball expertise. Chat with Claude to get guided workflows — not just raw stats, but expert-framed decisions on start/sit, trades, waivers, and streaming.
 
 ## Quick start
 
@@ -12,7 +12,7 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-> **Note:** pybaseball downloads a player lookup table (~2 MB) on first use. This is cached automatically.
+> **Note:** pybaseball downloads a player lookup table (~2 MB) on first use. Cached automatically.
 
 ### Run locally (stdio — for Claude Desktop)
 
@@ -26,6 +26,24 @@ python server/main.py
 MCP_TRANSPORT=http MCP_PORT=8000 python server/main.py
 ```
 
+## First time in Claude Desktop
+
+After connecting (see setup below), start with:
+
+```
+Call set_league_profile() with my league settings:
+- scoring_type: h2h_categories
+- hitting_categories: R,HR,RBI,SB,AVG
+- pitching_categories: W,SV,K,ERA,WHIP
+- lineup_lock: daily
+- league_size: 12
+```
+
+Then ask for a guided workflow:
+- *"Run a weekly lineup review for my roster: [paste players]"*
+- *"Find buy-low candidates from this list: [paste players]"*
+- *"Should I accept this trade: giving up [A], getting [B]?"*
+
 ## Claude Desktop integration
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
@@ -33,7 +51,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) o
 ```json
 {
   "mcpServers": {
-    "mlb-fantasy": {
+    "statsdeck": {
       "command": "/absolute/path/to/mlb-fantasy-mcp/.venv/bin/python",
       "args": ["/absolute/path/to/mlb-fantasy-mcp/server/main.py"],
       "env": {
@@ -44,35 +62,94 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) o
 }
 ```
 
-**WSL users:** use the WSL path (`/home/innov/mlb-fantasy-mcp/...`) or configure via Windows path if your Claude Desktop runs on Windows. See the WSL section below.
+**WSL users:** Claude Desktop on Windows can't resolve WSL paths directly.
+- **Option A (recommended):** Use `wsl.exe` as the command: `"command": "wsl.exe"`, `"args": ["--", "/home/innov/mlb-fantasy-mcp/.venv/bin/python", "/home/innov/mlb-fantasy-mcp/server/main.py"]`
+- **Option B:** Run `MCP_TRANSPORT=http python server/main.py` in WSL, then add as an HTTP MCP server at `http://localhost:8000` in Claude Desktop settings.
 
-### WSL + Claude Desktop (Windows) setup
+See `claude_desktop_config.example.json` for copy-paste configs.
 
-Claude Desktop on Windows can't call WSL paths directly. Options:
-1. **Copy to Windows filesystem:** `cp -r /home/innov/mlb-fantasy-mcp /mnt/c/Users/innov/mlb-fantasy-mcp` — then point Claude Desktop at `C:\Users\innov\mlb-fantasy-mcp`
-2. **Run HTTP transport in WSL, connect Claude Desktop to localhost:** set `MCP_TRANSPORT=http` in WSL, then add as an HTTP MCP server in Claude Desktop at `http://localhost:8000`
+---
+
+## Guided workflow prompts
+
+These are the highest-value entry points. Select them from the MCP prompts menu in Claude Desktop, or just ask Claude to run them.
+
+| Prompt | Args | What it does |
+|--------|------|-------------|
+| `weekly_lineup_review` | `roster` (your players), optional `week_start`/`week_end` | Full start/sit analysis: current form → matchups → park factors → Statcast validation for borderline players |
+| `buy_low_finder` | `players` (comma-separated list) | Finds positive regression candidates: high xwOBA/barrel rate + lagging results |
+| `sell_high_finder` | `players` | Finds overperformance candidates: high results + weak xwOBA/barrel rate (BABIP-driven, unsustainable) |
+| `streaming_pitchers` | `start_date`, `end_date`, `priorities` | Ranks free-agent starters by two-start potential, park factors, opponent quality |
+| `trade_evaluator` | `giving_up`, `getting` | Evaluates trade on current value + sustainable quality + category fit for your league |
+| `waiver_targets` | `available_players`, optional `roster_needs` | Ranks waiver adds by form, Statcast, upcoming schedule, and category fit |
+
+Each prompt:
+- Reads your league profile automatically (set once with `set_league_profile`)
+- Tells Claude exactly which tools to call and in what order
+- Embeds expert framing for interpreting the results
+- Adapts advice to your scoring type, categories, and daily/weekly lineup lock
+
+---
 
 ## Tools
 
-| Tool | Source | Description |
-|---|---|---|
-| `get_player_season_stats` | MLB Stats API | Full season batting/pitching stats |
-| `get_player_recent` | MLB Stats API | Per-game log for last N days |
-| `get_player_statcast` | Baseball Savant | xwOBA, barrel rate, exit velo, hard-hit% |
-| `get_probable_pitchers` | MLB Stats API | Today's (or any date's) starters |
-| `get_batter_vs_pitcher` | Baseball Savant | Head-to-head Statcast matchup |
-| `get_injuries` | MLB Stats API | Team or player IL status |
-| `get_park_factors` | Baseball Savant | Run/HR park factors vs league average |
-| `compare_players` | Both | Side-by-side two-player comparison |
-| `resolve_player_name` | pybaseball | Disambiguate player names → IDs |
+### League profile
+| Tool | Description |
+|------|-------------|
+| `set_league_profile` | Save your league format, categories, roster, waivers — used by every prompt |
+| `get_league_profile` | Retrieve your stored settings |
+| `how_to_use` | Orientation guide; call with a topic ("buy low", "streaming", "trades") for targeted tips |
+
+### Data tools
+| Tool | Source | Fantasy use case |
+|------|--------|-----------------|
+| `get_player_season_stats` | MLB Stats API | Baseline context before a trade; pitcher baseline before streaming |
+| `get_player_recent` | MLB Stats API | Hot/cold streak detection; current form for start/sit timing |
+| `get_player_statcast` | Baseball Savant | **Buy-low/sell-high tool** — xwOBA, barrel rate, hard-hit% reveal whether results are sustainable |
+| `get_probable_pitchers` | MLB Stats API | Weekly schedule planning; two-start identification |
+| `get_batter_vs_pitcher` | Baseball Savant | Tonight's matchup decision; platoon advantage confirmation |
+| `get_injuries` | MLB Stats API | Pre-start health check; trade due diligence |
+| `get_park_factors` | Baseball Savant | Streaming pitcher venue risk; hitter projection context |
+| `compare_players` | Both | Start/sit tiebreaker; waiver drop decision |
+| `resolve_player_name` | pybaseball | Disambiguate names, check IDs |
+
+### Structured response shape
+
+Every tool returns:
+```json
+{
+  "success": true,
+  "source": "Baseball Savant (Statcast)",
+  "data": { "...actual result..." },
+  "suggestions": ["Next-step nudge based on what the data shows"]
+}
+```
+
+The `suggestions` field coaches the next move — e.g., after `get_player_statcast` returns a high barrel rate with poor results, it will suggest `buy_low_finder`.
+
+---
 
 ## Data sources
 
-**MLB Stats API** (`statsapi.mlb.com`) — free, no auth. Used for season stats, game logs, probable pitchers, IL status. Cached 15 min – 1 hour.
+**MLB Stats API** (`statsapi.mlb.com`) — free, no auth. Season stats, game logs, probable pitchers, IL status. Cached 15 min – 1 hour.
 
 **Baseball Savant** (via pybaseball) — free scraper. **Only source for Statcast** (barrel rate, xwOBA, exit velocity, hard-hit%). Cached 3 hours to respect rate limits.
 
-> **Statcast note:** Baseball Savant is the sole provider of Statcast data. The MLB Stats API does not expose these metrics. If the Savant scraper breaks after a site update, Statcast tools will return a clear error — not stale data.
+> Statcast note: if the Savant scraper breaks after a site update, Statcast tools return a clear error — not stale data.
+
+---
+
+## League profile storage
+
+Stored in `profile_data/default.json`. The storage layer is abstracted behind a small interface (`get`/`save` keyed by `user_id`) so multi-tenant OAuth can be added without touching any tool logic:
+
+```
+profile_data/
+  default.json      ← beta: one user
+  user_abc123.json  ← future: per-user after OAuth
+```
+
+---
 
 ## Cache strategy
 
@@ -80,31 +157,17 @@ Claude Desktop on Windows can't call WSL paths directly. Options:
 |---|---|---|
 | Player ID lookups | 7 days | IDs are permanent |
 | Season stats | 1 hour | Updated after each game |
-| Recent game logs | 15 min | In-game or just-finished |
+| Recent game logs | 15 min | Near-live |
 | Statcast / Savant | 3 hours | Rate-limit buffer |
 | Probable pitchers | 30 min | Updated through game day |
-| Injuries | 10 min | Can change during game |
+| Injuries | 10 min | Changes during games |
 | Park factors | 24 hours | Near-static |
 
-All TTLs are configurable via environment variables (see `.env.example`). Cache is stored in `cache/data/` (excluded from git). Clear it with `rm -rf cache/data/`.
+All TTLs configurable via env vars (see `.env.example`). Cache stored in `cache/data/` (git-ignored). Clear: `rm -rf cache/data/`.
 
-**Future:** swap `cache/__init__.py` backend for Redis by replacing `diskcache.Cache` with a Redis client — the interface (`get`, `set`, `make_key`) stays the same.
+**Future:** swap `cache/__init__.py` for Redis — same `get`/`set`/`make_key` interface, no callers change.
 
-## Environment variables
-
-Copy `.env.example` to `.env` and source it, or set in your shell:
-
-```bash
-MCP_TRANSPORT=stdio          # or "http"
-MCP_HOST=0.0.0.0             # HTTP only
-MCP_PORT=8000                # HTTP only
-CACHE_TTL_STATCAST=10800     # seconds
-CACHE_TTL_SEASON_STATS=3600
-CACHE_TTL_RECENT=900
-CACHE_TTL_PLAYER_ID=604800
-CACHE_TTL_PITCHERS=1800
-CACHE_TTL_INJURIES=600
-```
+---
 
 ## Running tests
 
@@ -112,24 +175,40 @@ CACHE_TTL_INJURIES=600
 .venv/bin/python -m pytest tests/ -v
 ```
 
-Tests hit real APIs — they require internet access and take ~30s due to pybaseball downloads.
+- `tests/test_data_layer.py` — data sources in isolation (hits real APIs, ~30s)
+- `tests/test_server.py` — MCP tool responses + all 6 prompt content checks (~3s, mostly offline)
+
+---
 
 ## Known limitations (beta)
 
-- **Park factors** are 2024 approximations; live Savant endpoint is planned.
-- **Batter vs. pitcher** requires both players to have appeared in games this season for data; small sample sizes are expected early in the year.
-- **IL data** includes minor-league 7-day IL entries since the API exposes full org rosters.
-- **Rate limiting:** Statcast pulls via pybaseball can be throttled by Baseball Savant (~1 req/3s internally). The 3-hour cache is the mitigation.
+- **Park factors** are 2024 approximations; live Savant endpoint planned for v2.
+- **Batter vs. pitcher** is thin early in the season (small sample); treated as directional only.
+- **IL data** includes minor-league 7-day IL entries alongside MLB 10/15/60-day placements.
+- **Statcast rate limiting:** Savant throttles heavy scrapers. The 3-hour cache is the mitigation; concurrent users may see occasional empty results.
 
-## Paid-product roadmap
+---
 
-When moving to a paid product, these are the touch points (nothing in the beta needs to be rewritten):
+## Paid-product punch list for the league profile storage
 
-1. **Auth / user accounts:** Add OAuth middleware in front of `server/main.py`. FastMCP's HTTP transport can sit behind any ASGI middleware.
-2. **Per-user caching:** Replace `cache/__init__.py` with Redis + user-keyed namespaces.
-3. **Tiered tools:** Gate `get_player_statcast` and `compare_players` behind a paid tier at the tool-call level in `server/main.py`.
-4. **Premium data sources:** Each `sources/` module has a single fetch function per data type. Swap in a paid feed (e.g. SportsDataIO, Stats Perform) by replacing the fetch call — the tool layer is unchanged.
-5. **Projections (Steamer/ZiPS):** Add `sources/projections.py` following the same pattern.
-6. **Yahoo/ESPN roster sync:** Add `sources/fantasy_platform.py` + new tools.
-7. **Real-time in-game data:** Add WebSocket source module; rest of stack unchanged.
-8. **Billing:** Wire Stripe webhooks to update a user's tier in your auth layer.
+Everything in the beta stores profiles as local JSON, keyed by a `user_id` that is currently always `"default"`. To go multi-tenant:
+
+1. **Auth middleware:** Wrap `server/main.py`'s FastMCP HTTP transport in an ASGI auth layer (FastAPI lifespan, Starlette middleware). Validate the OAuth token, extract `user_id`, and make it available to tool handlers via request context or a context variable.
+
+2. **Pass `user_id` to profile functions:** In `server/main.py`, replace `DEFAULT_USER` with the authenticated user ID in `set_league_profile` and `get_league_profile`. The `sources/profile.py` interface already accepts `user_id` — callers just need to pass it.
+
+3. **Swap storage backend:** Implement a new class satisfying the `ProfileStorage` protocol in `sources/profile.py`:
+   ```python
+   class PostgresStorage:
+       def get(self, user_id: str) -> dict | None: ...
+       def save(self, user_id: str, profile: dict) -> None: ...
+   ```
+   Assign it to `_storage`. No callers change — not the tools, not the prompts.
+
+4. **Per-user cache namespacing:** In `cache/__init__.py`, prefix cache keys with `user_id`. When using Redis, namespace keys as `{user_id}:{tool_key}`.
+
+5. **Tier gating:** Add a decorator in `server/main.py` that checks the user's subscription tier before executing a tool. Statcast tools and the guided prompts are natural paid-tier features.
+
+6. **Profile in prompt context:** All 6 prompts already call `get_profile(DEFAULT_USER)`. After step 2, pass the authenticated user ID here instead — the prompts are already designed for it.
+
+Nothing in the data layer (`sources/mlb_stats.py`, `sources/savant.py`, `sources/player_resolver.py`) changes for multi-tenancy. The seam is cleanly at the profile storage and the auth layer.

@@ -45,3 +45,4 @@ htmlcov/
 # pybaseball internal cache (large Statcast CSVs)
 .pybaseball/
 .venv
+profile_data/
