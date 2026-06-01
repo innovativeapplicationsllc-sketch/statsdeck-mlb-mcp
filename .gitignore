@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Cache data (runtime artifacts, not code)
+cache/data/
+*.diskcache/
+*.db
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# pybaseball internal cache (large Statcast CSVs)
+.pybaseball/
+.venv
