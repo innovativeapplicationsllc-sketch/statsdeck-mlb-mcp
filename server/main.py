@@ -11,7 +11,11 @@ import sys
 from datetime import date, timedelta
 from typing import Any
 
+import uvicorn
 from mcp.server.fastmcp import FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1222,18 +1226,68 @@ After the rankings:
 
 
 # ---------------------------------------------------------------------------
+# Auth middleware
+# ---------------------------------------------------------------------------
+
+class _BearerAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Rejects all HTTP requests that don't carry 'Authorization: Bearer <token>'.
+    The /health path is exempt so Railway's health checks always pass.
+
+    To disable auth (not recommended in production): unset MCP_AUTH_TOKEN.
+    """
+
+    def __init__(self, app, token: str) -> None:
+        super().__init__(app)
+        self._token = token
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in ("/health", "/healthz"):
+            return Response(
+                content='{"status":"ok"}',
+                status_code=200,
+                media_type="application/json",
+            )
+        auth = request.headers.get("Authorization", "")
+        if not (auth.startswith("Bearer ") and auth[7:].strip() == self._token):
+            return Response(
+                content='{"error":"Unauthorized — provide Authorization: Bearer <MCP_AUTH_TOKEN>"}',
+                status_code=401,
+                media_type="application/json",
+            )
+        return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run():
+def run() -> None:
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+
     if transport == "http":
+        # Railway sets PORT; fall back to MCP_PORT, then 8000
+        port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8000")))
         host = os.getenv("MCP_HOST", "0.0.0.0")
-        port = int(os.getenv("MCP_PORT", "8000"))
-        logger.info("Starting MCP server on http://%s:%s", host, port)
-        mcp.run(transport="streamable-http", host=host, port=port)
+
+        # Get the Starlette ASGI app from FastMCP
+        app = mcp.streamable_http_app()
+
+        auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
+        if auth_token:
+            app.add_middleware(_BearerAuthMiddleware, token=auth_token)
+            logger.info("Bearer token auth enabled")
+        else:
+            logger.warning(
+                "MCP_AUTH_TOKEN is not set — server is open to anyone. "
+                "Set it before deploying."
+            )
+
+        logger.info("Starting MCP server (HTTP) on %s:%s", host, port)
+        uvicorn.run(app, host=host, port=port, log_level="info")
+
     else:
-        logger.info("Starting MCP server over stdio")
+        logger.info("Starting MCP server (stdio)")
         mcp.run(transport="stdio")
 
 

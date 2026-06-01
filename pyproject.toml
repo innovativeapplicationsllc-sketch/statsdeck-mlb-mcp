@@ -14,6 +14,11 @@ dependencies = [
     "diskcache>=5.6.3",
     "python-dateutil>=2.9.0",
     "pydantic>=2.0.0",
+    # HTTP transport (already a dep of mcp, pinned here for Railway clarity)
+    "uvicorn>=0.27.0",
+    "starlette>=0.36.0",
+    # Optional Redis cache backend — install is harmless when REDIS_URL isn't set
+    "redis>=5.0.0",
 ]
 
 [project.optional-dependencies]
