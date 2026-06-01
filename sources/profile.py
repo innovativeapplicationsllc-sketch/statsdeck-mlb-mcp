@@ -9,10 +9,19 @@ callers change.
 
 import json
 import logging
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Per-request user identity (set by OAuth middleware, read by tools/prompts)
+# ---------------------------------------------------------------------------
+
+# Set to the authenticated user's Clerk subject ("sub") on every HTTP request.
+# Falls back to DEFAULT_USER for stdio transport and unauthenticated requests.
+current_user_id: ContextVar[str] = ContextVar("current_user_id", default="default")
 
 DEFAULT_USER = "default"
 
@@ -67,6 +76,16 @@ def get_profile(user_id: str = DEFAULT_USER) -> dict | None:
 
 def save_profile(user_id: str = DEFAULT_USER, profile: dict | None = None) -> None:
     _storage.save(user_id, profile or {})
+
+
+def get_current_profile() -> dict | None:
+    """Get the profile for the currently-authenticated user (reads context var)."""
+    return get_profile(current_user_id.get())
+
+
+def save_current_profile(profile: dict) -> None:
+    """Save a profile for the currently-authenticated user."""
+    save_profile(current_user_id.get(), profile)
 
 
 # ---------------------------------------------------------------------------

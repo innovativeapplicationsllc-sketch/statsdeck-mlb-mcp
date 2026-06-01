@@ -1,8 +1,14 @@
 """
-MLB Fantasy MCP Server — FastMCP entry point.
+StatsDeck MCP Server — FastMCP entry point.
 
 Transport: MCP_TRANSPORT=stdio (default, for Claude Desktop)
-           MCP_TRANSPORT=http  (Streamable HTTP for remote deploy)
+           MCP_TRANSPORT=http  (Streamable HTTP — Railway / remote deploy)
+
+Auth modes (HTTP only):
+  Clerk OAuth  — set CLERK_DOMAIN + CLERK_OAUTH_CLIENT_ID + CLERK_OAUTH_CLIENT_SECRET
+                 + MCP_SERVER_URL. Preferred; supports Claude's "Connect" flow with no
+                 manual credential entry.
+  Legacy token — set MCP_AUTH_TOKEN only. Static bearer token; kept for transition period.
 """
 
 import logging
@@ -13,6 +19,8 @@ from typing import Any
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.types import ToolAnnotations
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -23,6 +31,9 @@ from sources import mlb_stats, savant
 from sources.player_resolver import resolve_player
 from sources.profile import (
     DEFAULT_USER,
+    current_user_id,
+    get_current_profile,
+    save_current_profile,
     get_profile,
     save_profile,
     profile_summary,
@@ -39,23 +50,82 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP(
-    "StatsDeck — MLB Fantasy Assistant",
-    instructions=(
-        "You are StatsDeck, an expert fantasy baseball assistant with access to live MLB data. "
-        "You actively guide users toward smart roster decisions — not just returning raw stats, "
-        "but framing them in terms of fantasy value, regression, and league context. "
-        "Statcast data (barrel rate, xwOBA, exit velocity) comes ONLY from Baseball Savant. "
-        "Game logs, season stats, probable pitchers, and IL data come from the MLB Stats API. "
-        "Always note the data source and any caveats (sample size, data age). "
-        "When suggestions are present in a tool response, surface them to guide the user's next step."
-    ),
+# ---------------------------------------------------------------------------
+# OAuth configuration — read at import time so FastMCP can be created with
+# the right token_verifier.  All Clerk env vars must be set together.
+# ---------------------------------------------------------------------------
+
+_CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "").strip()
+_CLERK_CLIENT_ID = os.getenv("CLERK_OAUTH_CLIENT_ID", "").strip()
+_CLERK_CLIENT_SECRET = os.getenv("CLERK_OAUTH_CLIENT_SECRET", "").strip()
+_MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "").strip().rstrip("/")
+
+_OAUTH_ENABLED = bool(_CLERK_DOMAIN and _CLERK_CLIENT_ID and _MCP_SERVER_URL)
+
+_INSTRUCTIONS = (
+    "You are StatsDeck, an expert fantasy baseball assistant with access to live MLB data. "
+    "You actively guide users toward smart roster decisions — not just returning raw stats, "
+    "but framing them in terms of fantasy value, regression, and league context. "
+    "Statcast data (barrel rate, xwOBA, exit velocity) comes ONLY from Baseball Savant. "
+    "Game logs, season stats, probable pitchers, and IL data come from the MLB Stats API. "
+    "Always note the data source and any caveats (sample size, data age). "
+    "When suggestions are present in a tool response, surface them to guide the user's next step."
 )
+
+if _OAUTH_ENABLED:
+    from server.oauth import ClerkTokenVerifier
+    from mcp.server.auth.settings import AuthSettings
+    from pydantic import AnyHttpUrl
+
+    logger.info("OAuth mode: CLERK_DOMAIN=%s MCP_SERVER_URL=%s", _CLERK_DOMAIN, _MCP_SERVER_URL)
+    mcp = FastMCP(
+        "StatsDeck — MLB Fantasy Assistant",
+        instructions=_INSTRUCTIONS,
+        token_verifier=ClerkTokenVerifier(_CLERK_DOMAIN, _CLERK_CLIENT_ID),
+        auth=AuthSettings(
+            issuer_url=AnyHttpUrl(f"https://{_CLERK_DOMAIN}"),
+            resource_server_url=AnyHttpUrl(_MCP_SERVER_URL),
+        ),
+    )
+else:
+    if _CLERK_DOMAIN:
+        logger.warning(
+            "CLERK_DOMAIN is set but CLERK_OAUTH_CLIENT_ID or MCP_SERVER_URL is missing — "
+            "OAuth disabled. Falling back to static token or no auth."
+        )
+    mcp = FastMCP("StatsDeck — MLB Fantasy Assistant", instructions=_INSTRUCTIONS)
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def _get_user_id() -> str:
+    """
+    Return the current user's ID from the validated OAuth token, or DEFAULT_USER
+    for stdio transport / unauthenticated requests.
+    Also sets the profile context var so prompts and helpers pick it up.
+    """
+    token = get_access_token()
+    uid = (token.subject if token and token.subject else DEFAULT_USER)
+    current_user_id.set(uid)
+    return uid
 
 
 # ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
+
+_GAMES_LIMIT = 50   # max game-log entries per tool response (~25 k tokens safe)
+_IL_LIMIT = 40      # max IL entries per team in all-teams query
+
+
+def _truncate_list(items: list, limit: int, label: str = "items") -> tuple[list, str | None]:
+    """Return (truncated_list, truncation_note | None)."""
+    if len(items) <= limit:
+        return items, None
+    return items[:limit], f"Showing {limit} of {len(items)} {label}. Request a shorter window for full data."
+
 
 def _err(msg: str) -> dict:
     return {"success": False, "error": msg, "data": {}, "source": "", "suggestions": []}
@@ -300,7 +370,9 @@ def set_league_profile(
             "faab_budget": faab_budget if waiver_type == "faab" else None,
         },
     }
-    save_profile(DEFAULT_USER, profile)
+    user_id = _get_user_id()
+    save_profile(user_id, profile)
+    logger.info("League profile saved for user_id=%s", user_id)
     return {
         "success": True,
         "source": "local profile storage",
@@ -312,7 +384,7 @@ def set_league_profile(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_league_profile() -> dict:
     """
     Retrieve your stored league settings.
@@ -324,7 +396,8 @@ def get_league_profile() -> dict:
     Returns:
         Your league profile, or instructions to set one if not yet configured.
     """
-    profile = get_profile()
+    uid = _get_user_id()
+    profile = get_profile(uid)
     if not profile:
         return {
             "success": True,
@@ -466,7 +539,7 @@ I give you live MLB data plus expert framing for fantasy decisions. Here's how t
 For topic-specific tips, call `how_to_use("buy low")`, `how_to_use("streaming")`, etc."""
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def how_to_use(topic: str = "") -> dict:
     """
     Get guidance on using StatsDeck — available workflows, example questions, and expert tips.
@@ -489,7 +562,7 @@ def how_to_use(topic: str = "") -> dict:
         matches = get_close_matches(topic_key, list(_HELP_TOPICS.keys()), n=1, cutoff=0.4)
         text = _HELP_TOPICS.get(matches[0]) if matches else None
 
-    profile = get_profile()
+    profile = get_current_profile()
     profile_note = (
         ""
         if profile
@@ -512,7 +585,7 @@ def how_to_use(topic: str = "") -> dict:
 # Tool: get_player_season_stats
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_player_season_stats(player_name: str, season: int | None = None) -> dict:
     """
     Get a player's full season batting or pitching statistics from the MLB Stats API.
@@ -543,7 +616,7 @@ def get_player_season_stats(player_name: str, season: int | None = None) -> dict
 # Tool: get_player_recent
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_player_recent(player_name: str, days: int = 14) -> dict:
     """
     Get a player's game-by-game stats over the last N days — the primary
@@ -571,15 +644,21 @@ def get_player_recent(player_name: str, days: int = 14) -> dict:
     """
     if days < 1 or days > 90:
         return _err("days must be between 1 and 90")
-    return _wrap(mlb_stats.get_player_recent, player_name, days,
-                 suggester=_suggest_recent)
+    result = _wrap(mlb_stats.get_player_recent, player_name, days,
+                   suggester=_suggest_recent)
+    if result.get("success") and "games" in result.get("data", {}):
+        games, note = _truncate_list(result["data"]["games"], _GAMES_LIMIT, "games")
+        result["data"]["games"] = games
+        if note:
+            result["data"]["truncation_note"] = note
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Tool: get_player_statcast
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_player_statcast(player_name: str, days: int = 14) -> dict:
     """
     Get Statcast quality-of-contact metrics for a player over the last N days.
@@ -618,7 +697,7 @@ def get_player_statcast(player_name: str, days: int = 14) -> dict:
 # Tool: get_probable_pitchers
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_probable_pitchers(game_date: str | None = None) -> dict:
     """
     Get probable starting pitchers for every game on a given date.
@@ -656,7 +735,7 @@ def get_probable_pitchers(game_date: str | None = None) -> dict:
 # Tool: get_batter_vs_pitcher
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_batter_vs_pitcher(batter: str, pitcher: str) -> dict:
     """
     Get head-to-head Statcast data for a specific batter vs. pitcher matchup.
@@ -690,7 +769,7 @@ def get_batter_vs_pitcher(batter: str, pitcher: str) -> dict:
 # Tool: get_injuries
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_injuries(team_or_player: str | None = None) -> dict:
     """
     Get current injured list (IL) status for a team or player.
@@ -713,15 +792,28 @@ def get_injuries(team_or_player: str | None = None) -> dict:
         For a player: whether they're on IL and the details.
         Source: MLB Stats API.
     """
-    return _wrap(mlb_stats.get_injuries, team_or_player,
-                 suggester=_suggest_injuries)
+    result = _wrap(mlb_stats.get_injuries, team_or_player,
+                   suggester=_suggest_injuries)
+    if result.get("success") and result.get("data", {}).get("query_type") == "team":
+        il, note = _truncate_list(
+            result["data"].get("injured_list", []), _IL_LIMIT, "IL entries"
+        )
+        result["data"]["injured_list"] = il
+        if note:
+            result["data"]["truncation_note"] = note
+    elif result.get("success") and result.get("data", {}).get("query_type") == "all":
+        # all-teams query: cap each team's list
+        for team, entries in (result["data"].get("teams") or {}).items():
+            if isinstance(entries, list) and len(entries) > _IL_LIMIT:
+                result["data"]["teams"][team] = entries[:_IL_LIMIT]
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Tool: get_park_factors
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def get_park_factors(stadium_or_team: str) -> dict:
     """
     Get park factor data — how much a ballpark inflates or suppresses offense
@@ -754,7 +846,7 @@ def get_park_factors(stadium_or_team: str) -> dict:
 # Tool: compare_players
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def compare_players(player_a: str, player_b: str, days: int = 14) -> dict:
     """
     Compare two players side-by-side: recent form (MLB Stats API) + underlying
@@ -788,11 +880,16 @@ def compare_players(player_a: str, player_b: str, days: int = 14) -> dict:
     statcast_a = _wrap(savant.get_player_statcast, player_a, days)
     statcast_b = _wrap(savant.get_player_statcast, player_b, days)
 
+    _half = max(1, _GAMES_LIMIT // 2)  # each side gets half the total limit
+
     def _side(recent: dict, statcast: dict, name: str) -> dict:
         out: dict[str, Any] = {"name": name}
         if recent.get("success"):
             out["games_played"] = recent["data"].get("games_played", 0)
-            out["recent_games"] = recent["data"].get("games", [])
+            games, note = _truncate_list(recent["data"].get("games", []), _half, "games")
+            out["recent_games"] = games
+            if note:
+                out["games_truncation_note"] = note
             out["stat_group"] = recent["data"].get("stat_group", "")
         else:
             out["recent_error"] = recent.get("error", "unknown error")
@@ -821,7 +918,7 @@ def compare_players(player_a: str, player_b: str, days: int = 14) -> dict:
 # Tool: resolve_player_name
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def resolve_player_name(player_name: str) -> dict:
     """
     Resolve a player name to their MLBAM and FanGraphs IDs.
@@ -870,7 +967,7 @@ def weekly_lineup_review(
         week_start: Start date in YYYY-MM-DD (optional, defaults to today)
         week_end: End date in YYYY-MM-DD (optional, defaults to 6 days out)
     """
-    profile = get_profile()
+    profile = get_current_profile()
     p_sum = profile_summary(profile)
     h_cats = key_hitting_cats(profile)
     p_cats = key_pitching_cats(profile)
@@ -936,7 +1033,7 @@ def buy_low_finder(players: str) -> str:
     Args:
         players: Comma-separated list of players to evaluate (your roster, targets, or anyone you're curious about)
     """
-    profile = get_profile()
+    profile = get_current_profile()
     p_sum = profile_summary(profile)
     h_cats = key_hitting_cats(profile)
 
@@ -979,7 +1076,7 @@ def sell_high_finder(players: str) -> str:
     Args:
         players: Comma-separated list of players to evaluate
     """
-    profile = get_profile()
+    profile = get_current_profile()
     p_sum = profile_summary(profile)
     h_cats = key_hitting_cats(profile)
 
@@ -1029,7 +1126,7 @@ def streaming_pitchers(
         end_date: YYYY-MM-DD (defaults to 6 days out)
         priorities: What to optimize for — "strikeouts", "ratios" (ERA/WHIP), "wins", or "balanced"
     """
-    profile = get_profile()
+    profile = get_current_profile()
     p_sum = profile_summary(profile)
     p_cats = key_pitching_cats(profile)
     daily = is_daily_lineup(profile)
@@ -1101,7 +1198,7 @@ def trade_evaluator(giving_up: str, getting: str) -> str:
         giving_up: Comma-separated list of players you would send away
         getting: Comma-separated list of players you would receive
     """
-    profile = get_profile()
+    profile = get_current_profile()
     p_sum = profile_summary(profile)
     h_cats = key_hitting_cats(profile)
     p_cats = key_pitching_cats(profile)
@@ -1169,7 +1266,7 @@ def waiver_targets(available_players: str, roster_needs: str = "") -> str:
         available_players: Comma-separated list of players available on your waiver wire
         roster_needs: Optional description of what you need (e.g. "need SB, weak at 3B, want SP")
     """
-    profile = get_profile()
+    profile = get_current_profile()
     p_sum = profile_summary(profile)
     h_cats = key_hitting_cats(profile)
     p_cats = key_pitching_cats(profile)
@@ -1265,30 +1362,46 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
 def run() -> None:
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
 
-    if transport == "http":
-        # Railway sets PORT; fall back to MCP_PORT, then 8000
-        port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8000")))
-        host = os.getenv("MCP_HOST", "0.0.0.0")
-
-        # Get the Starlette ASGI app from FastMCP
-        app = mcp.streamable_http_app()
-
-        auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
-        if auth_token:
-            app.add_middleware(_BearerAuthMiddleware, token=auth_token)
-            logger.info("Bearer token auth enabled")
-        else:
-            logger.warning(
-                "MCP_AUTH_TOKEN is not set — server is open to anyone. "
-                "Set it before deploying."
-            )
-
-        logger.info("Starting MCP server (HTTP) on %s:%s", host, port)
-        uvicorn.run(app, host=host, port=port, log_level="info")
-
-    else:
+    if transport != "http":
         logger.info("Starting MCP server (stdio)")
         mcp.run(transport="stdio")
+        return
+
+    port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8000")))
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    app = mcp.streamable_http_app()
+
+    if _OAUTH_ENABLED:
+        # Clerk OAuth mode — add AS metadata bridge + DCR shim routes
+        from server.oauth import build_oauth_routes
+        for route in build_oauth_routes(
+            clerk_domain=_CLERK_DOMAIN,
+            server_url=_MCP_SERVER_URL,
+            client_id=_CLERK_CLIENT_ID,
+            client_secret=_CLERK_CLIENT_SECRET,
+        ):
+            app.routes.append(route)
+        logger.info(
+            "OAuth mode active — PRM at %s/.well-known/oauth-protected-resource "
+            "AS metadata at %s/.well-known/oauth-authorization-server "
+            "DCR shim at %s/oauth/register",
+            _MCP_SERVER_URL, _MCP_SERVER_URL, _MCP_SERVER_URL,
+        )
+    else:
+        # Legacy static-token mode (kept until OAuth is verified then remove)
+        static_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
+        if static_token:
+            app.add_middleware(_BearerAuthMiddleware, token=static_token)
+            logger.warning(
+                "Using legacy static bearer token. "
+                "Set CLERK_DOMAIN + CLERK_OAUTH_CLIENT_ID + CLERK_OAUTH_CLIENT_SECRET "
+                "+ MCP_SERVER_URL to upgrade to OAuth."
+            )
+        else:
+            logger.warning("No auth configured — server is unauthenticated. Do not use in production.")
+
+    logger.info("Starting MCP server (HTTP) on %s:%s", host, port)
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

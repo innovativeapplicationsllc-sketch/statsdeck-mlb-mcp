@@ -19,6 +19,8 @@ dependencies = [
     "starlette>=0.36.0",
     # Optional Redis cache backend — install is harmless when REDIS_URL isn't set
     "redis>=5.0.0",
+    # JWT validation for Clerk OAuth tokens
+    "PyJWT[crypto]>=2.8.0",
 ]
 
 [project.optional-dependencies]
