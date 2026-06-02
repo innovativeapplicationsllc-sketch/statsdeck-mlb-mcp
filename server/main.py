@@ -59,6 +59,9 @@ _CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "").strip()
 _CLERK_CLIENT_ID = os.getenv("CLERK_OAUTH_CLIENT_ID", "").strip()
 _CLERK_CLIENT_SECRET = os.getenv("CLERK_OAUTH_CLIENT_SECRET", "").strip()
 _MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "").strip().rstrip("/")
+# Prepend https:// if the value was set without a scheme (common Railway copy-paste mistake)
+if _MCP_SERVER_URL and not _MCP_SERVER_URL.startswith(("https://", "http://")):
+    _MCP_SERVER_URL = "https://" + _MCP_SERVER_URL
 
 _OAUTH_ENABLED = bool(_CLERK_DOMAIN and _CLERK_CLIENT_ID and _MCP_SERVER_URL)
 
