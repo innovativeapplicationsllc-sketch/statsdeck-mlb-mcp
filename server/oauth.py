@@ -31,7 +31,7 @@ import jwt
 from jwt import PyJWKClient
 from mcp.server.auth.provider import AccessToken
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
@@ -228,9 +228,10 @@ def _make_oauth_handlers(
             [k for k, _ in filtered],
         )
 
-        clerk_url = f"{_cache['clerk_auth_endpoint']}?{urlencode(filtered)}"
-        logger.debug("Auth bridge: redirect → %s", clerk_url[:200])
-        return RedirectResponse(url=clerk_url, status_code=302)
+        qs = urlencode(filtered)
+        location = f"{_cache['clerk_auth_endpoint']}?{qs}"
+        logger.info("Auth bridge: Location=%s", location[:300])
+        return Response(status_code=302, headers={"Location": location})
 
     return as_metadata_handler, authorize_handler
 
