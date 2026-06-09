@@ -155,7 +155,10 @@ def _make_as_metadata_handler(
                 logger.error("Failed to fetch Clerk OIDC metadata: %s", exc)
                 return JSONResponse({"error": "upstream_error", "detail": str(exc)}, status_code=502)
 
-            # Overlay our additions on top of Clerk's metadata
+            # Overlay our additions on top of Clerk's metadata.
+            # issuer must equal the base URL from which this document is served
+            # (RFC 8414 §2) — Claude validates this; Clerk's issuer would mismatch.
+            clerk_meta["issuer"] = server_url
             clerk_meta["registration_endpoint"] = f"{server_url}/oauth/register"
             clerk_meta.setdefault("code_challenge_methods_supported", ["S256"])
             clerk_meta["authorization_response_iss_parameter_supported"] = True

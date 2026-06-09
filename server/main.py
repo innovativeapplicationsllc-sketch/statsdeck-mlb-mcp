@@ -8,6 +8,19 @@ Auth modes (HTTP only):
   Clerk OAuth  — set CLERK_DOMAIN + CLERK_OAUTH_CLIENT_ID + CLERK_OAUTH_CLIENT_SECRET
                  + MCP_SERVER_URL. Preferred; supports Claude's "Connect" flow with no
                  manual credential entry.
+
+                 OAuth discovery chain:
+                   GET  MCP_SERVER_URL/.well-known/oauth-protected-resource
+                     → authorization_servers: [MCP_SERVER_URL]  (our server, not Clerk)
+                   GET  MCP_SERVER_URL/.well-known/oauth-authorization-server
+                     → issuer: MCP_SERVER_URL
+                       authorization_endpoint: Clerk's real endpoint (from OIDC discovery)
+                       token_endpoint:         Clerk's real endpoint
+                       registration_endpoint:  MCP_SERVER_URL/oauth/register  (our DCR shim)
+                   POST MCP_SERVER_URL/oauth/register
+                     → returns pre-registered Clerk OAuth app credentials (201)
+                 JWT tokens are issued by Clerk and validated by ClerkTokenVerifier.
+
   Legacy token — set MCP_AUTH_TOKEN only. Static bearer token; kept for transition period.
 """
 
@@ -86,7 +99,11 @@ if _OAUTH_ENABLED:
         instructions=_INSTRUCTIONS,
         token_verifier=ClerkTokenVerifier(_CLERK_DOMAIN, _CLERK_CLIENT_ID),
         auth=AuthSettings(
-            issuer_url=AnyHttpUrl(f"https://{_CLERK_DOMAIN}"),
+            # Must point to OUR server, not Clerk's domain.
+            # FastMCP puts this in the PRM as authorization_servers, so Claude fetches
+            # /.well-known/oauth-authorization-server from us — where our DCR shim lives.
+            # Clerk's domain belongs only in ClerkTokenVerifier, not here.
+            issuer_url=AnyHttpUrl(_MCP_SERVER_URL),
             resource_server_url=AnyHttpUrl(_MCP_SERVER_URL),
         ),
     )
