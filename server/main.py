@@ -69,6 +69,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "").strip()
+# Strip scheme if the env var was set with https:// included — all call sites construct
+# their own https:// URLs from this value, so it must be a bare domain.
+if _CLERK_DOMAIN.startswith(("https://", "http://")):
+    _CLERK_DOMAIN = _CLERK_DOMAIN.split("://", 1)[1]
 _CLERK_CLIENT_ID = os.getenv("CLERK_OAUTH_CLIENT_ID", "").strip()
 _CLERK_CLIENT_SECRET = os.getenv("CLERK_OAUTH_CLIENT_SECRET", "").strip()
 _MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "").strip().rstrip("/")
