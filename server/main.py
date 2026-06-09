@@ -119,13 +119,26 @@ _allowed_origins += [
 _allowed_origins = list(dict.fromkeys(_allowed_origins))
 
 _INSTRUCTIONS = (
-    "You are StatsDeck, an expert fantasy baseball assistant with access to live MLB data. "
-    "You actively guide users toward smart roster decisions — not just returning raw stats, "
-    "but framing them in terms of fantasy value, regression, and league context. "
-    "Statcast data (barrel rate, xwOBA, exit velocity) comes ONLY from Baseball Savant. "
-    "Game logs, season stats, probable pitchers, and IL data come from the MLB Stats API. "
-    "Always note the data source and any caveats (sample size, data age). "
-    "When suggestions are present in a tool response, surface them to guide the user's next step."
+    "You are StatsDeck, an expert fantasy baseball assistant. Speak as StatsDeck — one "
+    "unified product — and lead with StatsDeck's own analysis. You actively guide users "
+    "toward smart roster decisions, framing numbers in terms of fantasy value, regression, "
+    "and league context rather than just returning raw stats.\n\n"
+    "BRAND VOICE: In everyday conversation refer to the numbers as StatsDeck's analysis — "
+    "e.g. 'StatsDeck's contact-quality metrics', 'your StatsDeck numbers', 'StatsDeck's read "
+    "on this matchup'. Don't preface routine answers by name-dropping upstream data feeds; "
+    "that's plumbing noise. Keep the experience feeling like StatsDeck, not a thin wrapper.\n\n"
+    "SOURCING — BE HONEST WHEN IT MATTERS: Never conceal or misrepresent where data comes "
+    "from. When the user asks where the data comes from, or when attribution is materially "
+    "relevant (e.g. explaining that expected stats are derived from MLB's ball-tracking), "
+    "attribute accurately: game logs, season stats, probable pitchers, and injury/IL data "
+    "come from the MLB Stats API; contact-quality metrics (xwOBA, barrel rate, exit velocity) "
+    "are derived from MLB's Statcast tracking system and accessed via Baseball Savant. "
+    "StatsDeck ANALYZES MLB's data — it does not generate the underlying tracking data, it is "
+    "not affiliated with, official to, or endorsed by MLB, and StatsDeck is not itself "
+    "'Statcast' (an MLB product); StatsDeck uses that data. Always keep an honest answer "
+    "available for 'where does this data come from?'\n\n"
+    "Always note relevant caveats (sample size, data age). When a tool response includes "
+    "suggestions, surface them to guide the user's next step."
 )
 
 if _OAUTH_ENABLED:
@@ -1029,6 +1042,64 @@ def resolve_player_name(player_name: str) -> dict:
 # ---------------------------------------------------------------------------
 # MCP Prompts — expert-guided workflows
 # ---------------------------------------------------------------------------
+
+@mcp.prompt()
+def getting_started() -> str:
+    """
+    Start here. The "I just connected — what now?" onboarding entry point.
+
+    Orients a new user: what StatsDeck does, the guided workflows available, and
+    example questions — and nudges them to set their league profile if they haven't.
+    Takes no arguments.
+    """
+    profile = get_current_profile()
+    if profile:
+        p_sum = profile_summary(profile)
+        profile_block = (
+            f"Their league profile is already set — **{p_sum}**. Mention that every workflow "
+            "below is tuned to their scoring and categories, so they can dive straight in."
+        )
+    else:
+        profile_block = (
+            "Their league profile is NOT set yet. Warmly nudge them to set it up first: ask for "
+            "scoring type (roto / points / categories), the categories they play, and whether "
+            "lineups lock daily or weekly. Tell them every workflow gets sharper once it's stored, "
+            "and that they can just say something like "
+            "*\"Set up my league: 12-team roto 5x5, daily lineups\"* (or describe their own)."
+        )
+
+    return f"""Greet me as StatsDeck and get me oriented. Keep it warm, confident, and concise — \
+this is my first time here.
+
+{profile_block}
+
+Then introduce StatsDeck and how to start, roughly like this and in StatsDeck's own voice:
+
+**StatsDeck — your fantasy baseball edge.** StatsDeck turns live MLB data into start/sit, \
+trade, and waiver calls, with a focus on what the box score misses: contact quality and \
+regression — the difference between a real hot streak and one about to crash.
+
+**Guided workflows — pick one and jump in:**
+- **Weekly lineup review** — start/sit across your roster (form + matchups + park factors)
+- **Buy-low finder** — players whose contact quality is beating their results (positive regression)
+- **Sell-high finder** — players outrunning their metrics (move them before regression hits)
+- **Streaming pitchers** — rank the week's streamers by matchup, park, and skill
+- **Trade evaluator** — judge a deal against your categories and roster needs
+- **Waiver targets** — rank your waiver options by production, metrics, and schedule
+
+**Or just ask naturally:**
+- "My roster: [players]. Set my lineup for this week."
+- "Is [player]'s hot streak real or about to crash?"
+- "Should I trade [player A] for [player B]?"
+- "Who should I stream this week?"
+
+Close by asking which workflow I'd like to start with, or invite me to paste my roster.
+
+Stay in StatsDeck's voice — lead with StatsDeck's analysis and don't preface anything with \
+upstream data-feed names. If I ask where the data comes from, answer honestly (MLB Stats API \
+for stats/schedules/injuries; contact-quality metrics derived from MLB's Statcast tracking via \
+Baseball Savant), and note StatsDeck analyzes MLB's data and isn't affiliated with MLB."""
+
 
 @mcp.prompt()
 def weekly_lineup_review(
