@@ -210,25 +210,26 @@ def _make_oauth_handlers(
                 media_type="application/json",
             )
 
-        params = dict(request.query_params)
-
-        # Strip RFC 8707 `resource` parameter.  Clerk's Fosite does not support resource
-        # indicators; leaving it in causes oauth2idp_patch_fosite_state_non_invalid_state_error
-        # before the login page ever renders.
-        resource = params.pop("resource", None)
+        # Filter directly from multi_items() — never convert to dict, so there is
+        # no intermediate structure that could re-introduce the stripped key.
+        resource = request.query_params.get("resource")
         if resource:
             logger.info(
-                "Auth bridge: stripped resource=%s (Clerk does not support RFC 8707)", resource
+                "Auth bridge: stripping resource=%s (Clerk does not support RFC 8707)", resource
             )
 
+        filtered = [(k, v) for k, v in request.query_params.multi_items() if k != "resource"]
+
         logger.info(
-            "Auth bridge: forwarding to Clerk — state=%s code_challenge=%s scope=%s",
-            params.get("state", "MISSING"),
-            "present" if "code_challenge" in params else "MISSING",
-            params.get("scope", "(none)"),
+            "Auth bridge: forwarding to Clerk — state=%s code_challenge=%s scope=%s params=%s",
+            request.query_params.get("state", "MISSING"),
+            "present" if "code_challenge" in request.query_params else "MISSING",
+            request.query_params.get("scope", "(none)"),
+            [k for k, _ in filtered],
         )
 
-        clerk_url = f"{_cache['clerk_auth_endpoint']}?{urlencode(params)}"
+        clerk_url = f"{_cache['clerk_auth_endpoint']}?{urlencode(filtered)}"
+        logger.debug("Auth bridge: redirect → %s", clerk_url[:200])
         return RedirectResponse(url=clerk_url, status_code=302)
 
     return as_metadata_handler, authorize_handler
