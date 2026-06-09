@@ -36,6 +36,14 @@ from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
 
+# Scopes our Clerk OAuth application actually has enabled.  Clerk's OIDC
+# discovery advertises extra scopes (public_metadata, private_metadata) that are
+# NOT enabled on this app; if Claude requests them, Fosite rejects the authorize
+# request with the generic oauth2idp_patch_fosite_state_non_invalid_state_error
+# and the user never reaches the login screen.  We both (a) advertise only these
+# in our bridged AS metadata and (b) trim the forwarded scope param to them.
+_ALLOWED_SCOPES: tuple[str, ...] = ("openid", "profile", "email", "offline_access")
+
 # ---------------------------------------------------------------------------
 # Clerk JWT Validator  —  implements mcp.server.auth.provider.TokenVerifier
 # ---------------------------------------------------------------------------
@@ -175,6 +183,10 @@ def _make_oauth_handlers(
         # Point Claude at our bridge, not Clerk directly — bridge strips `resource`
         as_meta["authorization_endpoint"] = f"{server_url}/oauth/authorize"
         as_meta["registration_endpoint"] = f"{server_url}/oauth/register"
+        # Advertise only the scopes our Clerk app has enabled.  Clerk's OIDC lists
+        # public_metadata/private_metadata, which aren't enabled here and make
+        # Fosite reject the authorize request.  See _ALLOWED_SCOPES.
+        as_meta["scopes_supported"] = list(_ALLOWED_SCOPES)
         as_meta.setdefault("code_challenge_methods_supported", ["S256"])
         as_meta["authorization_response_iss_parameter_supported"] = True
         auth_methods: list[str] = as_meta.get("token_endpoint_auth_methods_supported", [])
@@ -218,13 +230,31 @@ def _make_oauth_handlers(
                 "Auth bridge: stripping resource=%s (Clerk does not support RFC 8707)", resource
             )
 
-        filtered = [(k, v) for k, v in request.query_params.multi_items() if k != "resource"]
+        # Build the forwarded param list from multi_items() so order/state are
+        # preserved exactly.  Drop `resource` (Clerk rejects RFC 8707) and clamp
+        # `scope` to the scopes the Clerk app actually has enabled.
+        filtered: list[tuple[str, str]] = []
+        for k, v in request.query_params.multi_items():
+            if k == "resource":
+                continue
+            if k == "scope":
+                requested = v.split()
+                allowed = [s for s in requested if s in _ALLOWED_SCOPES]
+                dropped = [s for s in requested if s not in _ALLOWED_SCOPES]
+                if dropped:
+                    logger.info(
+                        "Auth bridge: dropping unsupported scopes %s (Clerk app has only %s)",
+                        dropped, list(_ALLOWED_SCOPES),
+                    )
+                # Fall back to the standard set if the client requested nothing usable.
+                v = " ".join(allowed) if allowed else " ".join(_ALLOWED_SCOPES)
+            filtered.append((k, v))
 
         logger.info(
             "Auth bridge: forwarding to Clerk — state=%s code_challenge=%s scope=%s params=%s",
             request.query_params.get("state", "MISSING"),
             "present" if "code_challenge" in request.query_params else "MISSING",
-            request.query_params.get("scope", "(none)"),
+            next((v for k, v in filtered if k == "scope"), "(none)"),
             [k for k, _ in filtered],
         )
 
