@@ -82,6 +82,42 @@ if _MCP_SERVER_URL and not _MCP_SERVER_URL.startswith(("https://", "http://")):
 
 _OAUTH_ENABLED = bool(_CLERK_DOMAIN and _CLERK_CLIENT_ID and _MCP_SERVER_URL)
 
+# ---------------------------------------------------------------------------
+# Transport security (DNS-rebinding protection on the StreamableHTTP transport).
+# The MCP transport validates the incoming Host header against an allow-list;
+# an unlisted host yields "421 Misdirected Request".  We derive the allowed host
+# from MCP_SERVER_URL automatically and allow an env-driven override list so a
+# future custom domain needs no code change.
+# ---------------------------------------------------------------------------
+
+from urllib.parse import urlsplit as _urlsplit
+
+_allowed_hosts: list[str] = []
+if _MCP_SERVER_URL:
+    _server_host = _urlsplit(_MCP_SERVER_URL).netloc  # host[:port], scheme already stripped
+    if _server_host:
+        _allowed_hosts.append(_server_host)
+# Extra hosts (comma-separated) — e.g. a custom domain added later in Railway.
+_allowed_hosts += [
+    h.strip() for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()
+]
+# Localhost for local stdio/HTTP testing (":*" allows any port).
+_allowed_hosts += ["localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*"]
+# De-dupe while preserving order.
+_allowed_hosts = list(dict.fromkeys(_allowed_hosts))
+
+# Origins: allow our own server URL and the localhost dev origins.
+_allowed_origins: list[str] = []
+if _MCP_SERVER_URL:
+    _allowed_origins.append(_MCP_SERVER_URL)
+_allowed_origins += [
+    o.strip() for o in os.getenv("MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+_allowed_origins += [
+    "http://localhost", "http://localhost:*", "http://127.0.0.1", "http://127.0.0.1:*",
+]
+_allowed_origins = list(dict.fromkeys(_allowed_origins))
+
 _INSTRUCTIONS = (
     "You are StatsDeck, an expert fantasy baseball assistant with access to live MLB data. "
     "You actively guide users toward smart roster decisions — not just returning raw stats, "
@@ -95,9 +131,13 @@ _INSTRUCTIONS = (
 if _OAUTH_ENABLED:
     from server.oauth import ClerkTokenVerifier
     from mcp.server.auth.settings import AuthSettings
+    from mcp.server.transport_security import TransportSecuritySettings
     from pydantic import AnyHttpUrl
 
-    logger.info("OAuth mode: CLERK_DOMAIN=%s MCP_SERVER_URL=%s", _CLERK_DOMAIN, _MCP_SERVER_URL)
+    logger.info(
+        "OAuth mode: CLERK_DOMAIN=%s MCP_SERVER_URL=%s allowed_hosts=%s",
+        _CLERK_DOMAIN, _MCP_SERVER_URL, _allowed_hosts,
+    )
     mcp = FastMCP(
         "StatsDeck — MLB Fantasy Assistant",
         instructions=_INSTRUCTIONS,
@@ -110,6 +150,10 @@ if _OAUTH_ENABLED:
             issuer_url=AnyHttpUrl(_MCP_SERVER_URL),
             resource_server_url=AnyHttpUrl(_MCP_SERVER_URL),
         ),
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=_allowed_hosts,
+            allowed_origins=_allowed_origins,
+        ),
     )
 else:
     if _CLERK_DOMAIN:
@@ -117,7 +161,16 @@ else:
             "CLERK_DOMAIN is set but CLERK_OAUTH_CLIENT_ID or MCP_SERVER_URL is missing — "
             "OAuth disabled. Falling back to static token or no auth."
         )
-    mcp = FastMCP("StatsDeck — MLB Fantasy Assistant", instructions=_INSTRUCTIONS)
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    mcp = FastMCP(
+        "StatsDeck — MLB Fantasy Assistant",
+        instructions=_INSTRUCTIONS,
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=_allowed_hosts,
+            allowed_origins=_allowed_origins,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
