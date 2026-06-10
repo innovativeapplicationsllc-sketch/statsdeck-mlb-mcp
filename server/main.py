@@ -33,10 +33,11 @@ from typing import Any
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.types import ToolAnnotations
+from mcp.types import Icon, ToolAnnotations
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
+from starlette.routing import Route
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -118,6 +119,26 @@ _allowed_origins += [
 ]
 _allowed_origins = list(dict.fromkeys(_allowed_origins))
 
+# ---------------------------------------------------------------------------
+# Server icon (StatsDeck logo).  Advertised in the MCP `Implementation`
+# (serverInfo) per the MCP spec for server-provided icons, so Claude shows the
+# StatsDeck logo in the connector list, tool-call chips, and prompt menu instead
+# of the platform default.  The PNG is served from this server (see run()), so
+# no custom domain or extra env var is required — the URL derives from
+# MCP_SERVER_URL.  Also served as /favicon.ico for clients that fall back to it.
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ICON_FILE = os.path.join(_REPO_ROOT, "static", "icon.png")
+# Absolute URL when we know our public origin (HTTP deploy); relative for stdio.
+_ICON_URL = f"{_MCP_SERVER_URL}/static/icon.png" if _MCP_SERVER_URL else "/static/icon.png"
+_SERVER_ICONS = [Icon(src=_ICON_URL, mimeType="image/png", sizes=["512x512"])]
+
+# Paths that must bypass auth so the icon/favicon load in any auth mode.
+_PUBLIC_PATHS = frozenset({
+    "/health", "/healthz", "/static/icon.png", "/favicon.ico", "/favicon.png",
+})
+
 _INSTRUCTIONS = (
     "You are StatsDeck, an expert fantasy baseball assistant. Speak as StatsDeck — one "
     "unified product — and lead with StatsDeck's own analysis. You actively guide users "
@@ -154,6 +175,8 @@ if _OAUTH_ENABLED:
     mcp = FastMCP(
         "StatsDeck — MLB Fantasy Assistant",
         instructions=_INSTRUCTIONS,
+        icons=_SERVER_ICONS,
+        website_url=_MCP_SERVER_URL or None,
         token_verifier=ClerkTokenVerifier(_CLERK_DOMAIN, _CLERK_CLIENT_ID),
         auth=AuthSettings(
             # Must point to OUR server, not Clerk's domain.
@@ -179,6 +202,8 @@ else:
     mcp = FastMCP(
         "StatsDeck — MLB Fantasy Assistant",
         instructions=_INSTRUCTIONS,
+        icons=_SERVER_ICONS,
+        website_url=_MCP_SERVER_URL or None,
         transport_security=TransportSecuritySettings(
             allowed_hosts=_allowed_hosts,
             allowed_origins=_allowed_origins,
@@ -1487,12 +1512,16 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
         self._token = token
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in ("/health", "/healthz"):
+        path = request.url.path
+        if path in ("/health", "/healthz"):
             return Response(
                 content='{"status":"ok"}',
                 status_code=200,
                 media_type="application/json",
             )
+        # Icon / favicon are public so Claude can fetch the connector logo unauthenticated.
+        if path in _PUBLIC_PATHS:
+            return await call_next(request)
         auth = request.headers.get("Authorization", "")
         if not (auth.startswith("Bearer ") and auth[7:].strip() == self._token):
             return Response(
@@ -1501,6 +1530,25 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
                 media_type="application/json",
             )
         return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Static assets (StatsDeck logo) — auth-exempt
+# ---------------------------------------------------------------------------
+
+async def _serve_icon(request: Request) -> Response:
+    """
+    Serve the StatsDeck logo. Backs both the MCP server icon (advertised in
+    serverInfo as _ICON_URL) and the root favicon fallback. No auth required.
+    """
+    if not os.path.exists(_ICON_FILE):
+        logger.warning("Icon requested but file missing at %s", _ICON_FILE)
+        return Response(status_code=404)
+    return FileResponse(
+        _ICON_FILE,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1518,6 +1566,12 @@ def run() -> None:
     port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8000")))
     host = os.getenv("MCP_HOST", "0.0.0.0")
     app = mcp.streamable_http_app()
+
+    # Serve the logo (connector icon src + favicon fallback) in every auth mode.
+    for _icon_path in ("/static/icon.png", "/favicon.ico", "/favicon.png"):
+        app.routes.append(Route(_icon_path, _serve_icon, methods=["GET"]))
+    logger.info("Serving StatsDeck icon at %s (file=%s exists=%s)",
+                _ICON_URL, _ICON_FILE, os.path.exists(_ICON_FILE))
 
     if _OAUTH_ENABLED:
         # Clerk OAuth mode — add AS metadata bridge + DCR shim routes
