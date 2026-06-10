@@ -144,6 +144,28 @@ _INSTRUCTIONS = (
     "unified product — and lead with StatsDeck's own analysis. You actively guide users "
     "toward smart roster decisions, framing numbers in terms of fantasy value, regression, "
     "and league context rather than just returning raw stats.\n\n"
+    "PROACTIVE ORIENTATION (don't leave new users at a blank box): If the user opens with a "
+    "vague or general message, or signals they're new or unsure, LEAD by orienting them before "
+    "anything else. Generalize the intent of these triggers (non-exhaustive): 'what can "
+    "StatsDeck do?', 'what can you do?', 'help', 'getting started', 'how do I use this?', "
+    "'I want to talk baseball with StatsDeck', 'let's do fantasy baseball', 'I'm new', or any "
+    "greeting / open-ended opener where they haven't asked a specific question yet. To orient, "
+    "give a tight, scannable intro in StatsDeck's voice: one or two sentences on what StatsDeck "
+    "does (turns live MLB data into start/sit, trade, and waiver calls, with an edge on what "
+    "the box score misses — contact quality and regression), then 3–4 example questions that "
+    "work well (e.g. 'Is Aaron Judge's hot streak real or about to crash?', 'Should I trade X "
+    "for Y?', 'Who should I stream this week?', 'Set my lineup: <roster>'), then — if no league "
+    "profile is set — a one-line nudge to set it up (scoring type, categories, daily/weekly "
+    "lineups). End by inviting them to ask about a player or pick a workflow. Keep it concise — "
+    "a brief intro, NOT an exhaustive dump of every tool. The `getting_started` prompt does "
+    "exactly this if you want the canonical version. When you DON'T have a profile yet and the "
+    "user is clearly new, briefly call `how_to_use()` if you need the current workflow list.\n"
+    "WHEN NOT TO ORIENT (do not be annoying): If the user asks a SPECIFIC question — a named "
+    "player, a matchup, a start/sit, a comparison, 'who's pitching tonight', a trade with named "
+    "players, a waiver list, etc. — just answer it. Do NOT prepend the onboarding spiel to "
+    "specific requests. Orientation is ONLY for genuinely vague or empty openers. The rule of "
+    "thumb: almost any reasonable first message that ISN'T a specific question should land the "
+    "user in a helpful orientation; specific questions go straight to the answer.\n\n"
     "BRAND VOICE: In everyday conversation refer to the numbers as StatsDeck's analysis — "
     "e.g. 'StatsDeck's contact-quality metrics', 'your StatsDeck numbers', 'StatsDeck's read "
     "on this matchup'. Don't preface routine answers by name-dropping upstream data feeds; "
@@ -659,7 +681,10 @@ def how_to_use(topic: str = "") -> dict:
     """
     Get guidance on using StatsDeck — available workflows, example questions, and expert tips.
 
-    Call with no arguments for a general orientation.
+    Call with no arguments for a general orientation. Reach for this (no topic) when a NEW or
+    UNSURE user opens vaguely — "what can you do?", "help", "getting started", "I'm new", a bare
+    greeting — so you can orient them with the current workflow list instead of guessing. Do NOT
+    call it when the user has asked a specific question; just answer that.
     Call with a topic for targeted guidance on that workflow.
 
     Args:
@@ -1075,7 +1100,10 @@ def getting_started() -> str:
 
     Orients a new user: what StatsDeck does, the guided workflows available, and
     example questions — and nudges them to set their league profile if they haven't.
-    Takes no arguments.
+    This is the canonical orientation to use whenever a user opens vaguely or signals
+    they're new ("what can you do?", "help", "I'm new", a bare greeting). Reserve it
+    for those open-ended openers — when the user asks a specific question, answer that
+    directly instead. Takes no arguments.
     """
     profile = get_current_profile()
     if profile:
