@@ -144,6 +144,19 @@ _INSTRUCTIONS = (
     "unified product — and lead with StatsDeck's own analysis. You actively guide users "
     "toward smart roster decisions, framing numbers in terms of fantasy value, regression, "
     "and league context rather than just returning raw stats.\n\n"
+    "TONE — BE THE SHARP FRIEND IN THE LEAGUE: StatsDeck is fun, laid-back, and genuinely "
+    "knowledgeable — the buddy who knows the numbers cold but is easy to talk to, not a cold "
+    "corporate analytics dashboard. Be conversational and relaxed: use contractions, plain "
+    "language a casual fantasy player gets instantly, and a little baseball-fan energy or playful "
+    "confidence where it fits ('that hot streak's living on a .390 BABIP — sell before it craters'). "
+    "Keep it warm and human. But the fun is in the DELIVERY, never at the expense of the analysis — "
+    "stay substantive, accurate, and honest about uncertainty. Don't force jokes, don't get gimmicky "
+    "or over-caffeinated, and don't bury the actual answer under banter. Natural, friendly, and "
+    "genuinely helpful — just with personality.\n\n"
+    "PLAIN-ENGLISH NAMING: Never expose internal tool, prompt, or function names to users — no "
+    "underscores, no parentheses, no code-style names. Talk about capabilities in plain English "
+    "('I can grade that trade', 'want me to size up your waiver options?'), never the machinery "
+    "behind them.\n\n"
     "PROACTIVE ORIENTATION (don't leave new users at a blank box): If the user opens with a "
     "vague or general message, or signals they're new or unsure, LEAD by orienting them before "
     "anything else. Generalize the intent of these triggers (non-exhaustive): 'what can "
@@ -156,10 +169,10 @@ _INSTRUCTIONS = (
     "work well (e.g. 'Is Aaron Judge's hot streak real or about to crash?', 'Should I trade X "
     "for Y?', 'Who should I stream this week?', 'Set my lineup: <roster>'), then — if no league "
     "profile is set — a one-line nudge to set it up (scoring type, categories, daily/weekly "
-    "lineups). End by inviting them to ask about a player or pick a workflow. Keep it concise — "
-    "a brief intro, NOT an exhaustive dump of every tool. The `getting_started` prompt does "
-    "exactly this if you want the canonical version. When you DON'T have a profile yet and the "
-    "user is clearly new, briefly call `how_to_use()` if you need the current workflow list.\n"
+    "lineups). End by inviting them to ask about a player or pick a play. Keep it concise — "
+    "a brief intro, NOT an exhaustive dump of every capability. The Getting Started prompt does "
+    "exactly this if you want the canonical version, and the built-in how-to guidance has the "
+    "current capability list — lean on those, but keep all of it in plain English to the user.\n"
     "WHEN NOT TO ORIENT (do not be annoying): If the user asks a SPECIFIC question — a named "
     "player, a matchup, a start/sit, a comparison, 'who's pitching tonight', a trade with named "
     "players, a waiver list, etc. — just answer it. Do NOT prepend the onboarding spiel to "
@@ -307,32 +320,32 @@ def _suggest_statcast(data: dict) -> list[str]:
         if xwoba >= 0.370 and barrel >= 0.08:
             suggestions.append(
                 f"Elite contact profile (xwOBA {xwoba:.3f}, barrel {barrel:.1%}). "
-                "If counting stats are lagging, this is a textbook buy-low candidate — "
-                "use the buy_low_finder prompt."
+                "If the counting stats are lagging, this is a textbook buy-low — "
+                "want me to scan him for buy-low value?"
             )
         elif xwoba <= 0.275:
             suggestions.append(
-                f"Weak underlying contact (xwOBA {xwoba:.3f}). Surface stats may be outrunning "
-                "actual quality — check sell_high_finder before extending roster commitment."
+                f"Weak underlying contact (xwOBA {xwoba:.3f}). The surface stats may be outrunning "
+                "the real quality — worth a sell-high look before you commit a roster spot."
             )
 
     if barrel is not None and barrel >= 0.12:
         suggestions.append(
             f"Barrel rate {barrel:.1%} is elite (top ~10% of MLB). "
-            "Power upside is real regardless of recent HR count. "
-            "Compare to your current option with compare_players."
+            "The power's for real regardless of his recent HR count — "
+            "happy to stack him up against your current option."
         )
 
     if hh is not None and hh >= 0.50:
         suggestions.append(
             f"Hard-hit rate {hh:.1%} — contact quality is excellent. "
-            "Pair with get_player_recent to see if results are matching the quality."
+            "Check his recent game log to see if the results are catching up yet."
         )
 
     if not suggestions:
         suggestions.append(
-            "Use compare_players to benchmark against a roster alternative, "
-            "or buy_low_finder / sell_high_finder if you're making a trade decision."
+            "Want a gut check? I can compare him to a roster alternative, "
+            "or run a buy-low / sell-high read if a trade's on the table."
         )
     return suggestions
 
@@ -344,29 +357,29 @@ def _suggest_recent(data: dict) -> list[str]:
     suggestions: list[str] = []
     if games < 5:
         suggestions.append(
-            f"Only {games} games — small sample. "
-            "Use get_player_statcast to see underlying contact quality before a roster decision."
+            f"Only {games} games — small sample, so don't read too much into it. "
+            "Peek at his contact quality before making a roster call."
         )
     else:
         suggestions.append(
-            "Use get_player_statcast to validate whether this form is real (good underlying metrics) "
-            "or variance (hot BABIP, soft contact getting through)."
+            "Want to know if this form is real? Check the contact quality — strong metrics mean "
+            "it sticks; soft contact with a hot BABIP means it's about to cool off."
         )
     return suggestions
 
 
 def _suggest_season_stats(data: dict) -> list[str]:
     return [
-        "Season stats are context — use get_player_statcast for underlying quality "
-        "(are these stats sustainable?) and get_player_recent for current form (hot or cold right now?)."
+        "Season stats are the backdrop — check his contact quality to see if they're sustainable, "
+        "and his recent log to see whether he's hot or cold right now."
     ]
 
 
 def _suggest_pitchers(data: dict) -> list[str]:
     count = data.get("game_count", 0)
     suggestions = [
-        "Use the streaming_pitchers prompt for a full week analysis: "
-        "it ranks starters by opponent quality, park factors, and recent form."
+        "Want the week's best streamers? I can rank the available starters by matchup, "
+        "ballpark, and recent form."
     ]
     if count == 0:
         suggestions.insert(0, "No games found for this date — try an adjacent date or check if it's an off day.")
@@ -378,18 +391,18 @@ def _suggest_bvp(data: dict) -> list[str]:
     pas = matchup.get("plate_appearances", 0)
     if pas < 10:
         return [
-            f"Only {pas} PAs in this matchup this season — insufficient for meaningful signal. "
-            "Weight get_player_statcast and get_player_recent more heavily for tonight's decision."
+            f"Only {pas} PAs in this matchup this season — too small to lean on. "
+            "Trust his contact quality and recent form more than this for tonight's call."
         ]
     return [
-        "Solid matchup sample. Combine with get_park_factors for the venue to complete the start/sit picture."
+        "Solid matchup sample. Factor in the ballpark tonight to round out the start/sit picture."
     ]
 
 
 def _suggest_injuries(data: dict) -> list[str]:
     if data.get("on_injured_list"):
         return [
-            "Player is on the IL. Use the waiver_targets prompt to find replacements that fit your categories."
+            "He's on the IL. Want me to size up your waiver options for a replacement that fits your categories?"
         ]
     qt = data.get("query_type", "")
     if qt == "team":
@@ -408,14 +421,14 @@ def _suggest_park(data: dict) -> list[str]:
     if rf >= 108:
         return [
             f"{stadium} is a hitter's park (run factor {rf}). "
-            "Boost offensive projections for hitters playing here. "
-            "Avoid streaming pitchers scheduled in this park — use streaming_pitchers to find better options."
+            "Bump up your hitters here, and steer your streamers away from this one — "
+            "I can find better spots if you need them."
         ]
     if rf <= 93:
         return [
             f"{stadium} suppresses offense (run factor {rf}). "
-            "Temper hitter expectations; this is a favorable venue for streaming pitchers. "
-            "Check streaming_pitchers for starters with home starts here."
+            "Temper your hitters' expectations — but it's a great spot to stream a pitcher. "
+            "I can dig up starters with a home start here."
         ]
     return [f"{stadium} is near-neutral (run factor {rf}). Park isn't a meaningful factor for this decision."]
 
@@ -433,12 +446,12 @@ def _suggest_compare(data: dict) -> list[str]:
             better = a["name"] if diff > 0 else b["name"]
             return [
                 f"{better} has meaningfully better underlying contact quality "
-                f"(Δ xwOBA {abs(diff):.3f}). Weight this over short-term counting stats. "
-                "Use trade_evaluator prompt if you're considering a trade between them."
+                f"(Δ xwOBA {abs(diff):.3f}). Trust that over short-term counting stats. "
+                "Thinking about dealing one for the other? I can grade the trade."
             ]
     return [
-        "Use trade_evaluator prompt for a full trade-framing analysis with "
-        "category fit and rest-of-season outlook."
+        "Want the full picture? I can grade a trade between them — category fit and "
+        "rest-of-season outlook included."
     ]
 
 
@@ -515,8 +528,9 @@ def set_league_profile(
         "source": "local profile storage",
         "data": {"message": "League profile saved.", "summary": profile_summary(profile)},
         "suggestions": [
-            "Profile saved! Now try a guided workflow: weekly_lineup_review, buy_low_finder, "
-            "or streaming_pitchers — each prompt will use your league settings automatically."
+            "You're all set! Now we can really cook — set your lineup for the week, hunt for "
+            "buy-low and sell-high guys, or find the best streamers. Everything's tuned to your "
+            "league from here on out."
         ],
     }
 
@@ -526,7 +540,7 @@ def get_league_profile() -> dict:
     """
     Retrieve your stored league settings.
 
-    Returns the profile you set with set_league_profile(), including scoring format,
+    Returns the league setup the user stored earlier, including scoring format,
     categories, roster construction, and waiver settings. All prompts read this
     automatically — you don't need to repeat it each conversation.
 
@@ -541,8 +555,8 @@ def get_league_profile() -> dict:
             "source": "local profile storage",
             "data": {"profile": None},
             "suggestions": [
-                "No profile found. Call set_league_profile() to store your league settings. "
-                "This unlocks personalized advice in every prompt and tool response."
+                "No league set up yet. Just tell me your league — scoring, categories, and whether "
+                "lineups lock daily or weekly — and I'll tailor every call to it."
             ],
         }
     return {
@@ -550,8 +564,8 @@ def get_league_profile() -> dict:
         "source": "local profile storage",
         "data": {"profile": profile, "summary": profile_summary(profile)},
         "suggestions": [
-            "Profile loaded. Use weekly_lineup_review, buy_low_finder, or streaming_pitchers "
-            "for expert guided workflows tuned to your league."
+            "Got your league loaded. Want to set your lineup for the week, hunt some buy-low guys, "
+            "or find the best streamers? Everything's tuned to your setup."
         ],
     }
 
@@ -562,118 +576,109 @@ def get_league_profile() -> dict:
 
 _HELP_TOPICS: dict[str, str] = {
     "buy low": (
-        "**Buy-low analysis** — finding players whose underlying quality exceeds their results.\n\n"
-        "Key signal: high xwOBA (≥ .360) or high barrel rate (≥ 10%) paired with weak counting stats or AVG. "
-        "This means the player is making hard contact but results haven't caught up yet — positive regression "
-        "is likely.\n\n"
-        "**Tools to use:**\n"
-        "- `get_player_statcast(name, days=21)` — pull xwOBA, barrel rate, hard-hit%\n"
-        "- `get_player_season_stats(name)` — compare expected quality to actual results\n"
-        "- `get_player_recent(name, days=14)` — check if the slump is recent or ongoing\n\n"
-        "**Fastest path:** use the `buy_low_finder` prompt — paste in a list of players you're targeting "
-        "and it runs the full analysis with expert framing.\n\n"
-        "**Don't confuse bad luck with a bad player.** A player with BOTH weak Statcast AND weak results "
-        "is just struggling — not a buy-low."
+        "**Buy-low hunting** — finding guys whose underlying quality is way better than their results.\n\n"
+        "The signal: strong contact quality (xwOBA ≥ .360 or barrel rate ≥ 10%) sitting on weak counting "
+        "stats or a cold average. He's stinging the ball — the results just haven't caught up yet, and "
+        "positive regression is coming.\n\n"
+        "**What I'll dig into:** his contact-quality numbers, his season line (expected vs. actual), and "
+        "his recent game log to see whether the slump is fresh or a longer pattern.\n\n"
+        "**Just ask** — \"Find me some buy-low guys: [players]\" — and I'll run the full read on each.\n\n"
+        "**One trap to dodge:** weak contact AND weak results means he's just struggling. That's not a "
+        "buy-low, that's a bad week with a bad process behind it."
     ),
     "sell high": (
-        "**Sell-high analysis** — finding players outrunning their underlying metrics.\n\n"
-        "Key signals: very high BABIP (> .340 is usually unsustainable), HR/FB rate spike without "
-        "supporting barrel rate (> 20% HR/FB rarely persists), or strong AVG with weak xwOBA.\n\n"
-        "**Tools to use:**\n"
-        "- `get_player_statcast(name, days=21)` — pull xwOBA and barrel rate\n"
-        "- `get_player_season_stats(name)` — check BABIP vs. career average\n"
-        "- `get_player_recent(name, days=14)` — see if the hot streak is recent and potentially cooling\n\n"
-        "**Fastest path:** `sell_high_finder` prompt — list the players you're considering trading away "
-        "and it flags which ones are genuinely good vs. running hot.\n\n"
-        "**Timing matters.** Sell while a player's name value is highest — before the regression shows "
-        "in the box score."
+        "**Sell-high hunting** — spotting guys who are outrunning their underlying metrics.\n\n"
+        "The tells: a sky-high BABIP (> .340 rarely lasts), a home-run spike with no barrel rate to back "
+        "it (> 20% HR/FB almost never holds), or a shiny average parked on a weak xwOBA.\n\n"
+        "**What I'll dig into:** his contact quality, his BABIP versus his career norm, and whether the "
+        "hot streak is recent and already starting to cool.\n\n"
+        "**Just ask** — \"Who should I sell high? [players]\" — and I'll flag who's genuinely good versus "
+        "who's just running hot.\n\n"
+        "**Timing is everything.** Sell while his name value is at its peak — before the regression shows "
+        "up in the box score and everyone else catches on."
     ),
     "streaming": (
-        "**Streaming pitchers** — adding free-agent starters for a week then dropping them.\n\n"
+        "**Streaming pitchers** — grabbing a free-agent starter for a week, then moving on.\n\n"
         "**What makes a good streamer:**\n"
-        "1. Favorable opponent (team with weak offense)\n"
-        "2. Pitcher-friendly park (run factor < 96) — check `get_park_factors`\n"
-        "3. Two starts in the week (doubles the value)\n"
-        "4. Decent baseline (ERA < 4.50, WHIP < 1.35) — check `get_player_season_stats`\n"
-        "5. Good recent form — check `get_player_recent`\n\n"
-        "**Daily vs. weekly lineups matter a lot.** Daily leagues can stream aggressively — "
-        "swap based on each day's matchup. Weekly leagues need higher confidence since you're "
-        "committed for the full week.\n\n"
-        "**Fastest path:** `streaming_pitchers` prompt — give it a date range and it surfaces "
-        "the week's best options with all factors considered."
+        "1. A soft opponent (weak offense)\n"
+        "2. A pitcher-friendly ballpark (run factor < 96)\n"
+        "3. Two starts in the week — that's double the value\n"
+        "4. A respectable baseline (ERA < 4.50, WHIP < 1.35)\n"
+        "5. Good recent form\n\n"
+        "**Daily vs. weekly lineups change everything.** In daily leagues you can stream aggressively and "
+        "chase each day's best matchup. In weekly leagues you're locked in, so you need more confidence "
+        "before you pull the trigger.\n\n"
+        "**Just ask** — \"Who are the best streamers this week?\" — and I'll surface the top arms with "
+        "every factor already weighed."
     ),
     "trades": (
-        "**Evaluating trades** — don't judge a trade in a vacuum.\n\n"
-        "**Framework:**\n"
+        "**Grading trades** — never judge one in a vacuum.\n\n"
+        "**How I think about it:**\n"
         "1. **Current value** — who's producing more per game right now?\n"
-        "2. **Sustainable quality** — whose Statcast metrics support continued production?\n"
-        "3. **Category fit** — does this trade help your specific weaknesses or hurt your strengths?\n"
-        "4. **Health** — always check IL status before accepting\n\n"
-        "**Common mistake:** valuing season stats over underlying quality. A player with a .290 BA "
-        "and .330 xwOBA is more valuable than one with a .305 BA and .270 xwOBA — the second "
-        "player's results won't last.\n\n"
-        "**Fastest path:** `trade_evaluator` prompt — paste in both sides and get a structured "
-        "verdict on who wins current value, rest-of-season, and category fit.\n\n"
-        "Set your league profile with `set_league_profile` first — trade advice is much sharper "
-        "when the system knows your categories."
+        "2. **Sustainable quality** — whose contact metrics actually back up the production?\n"
+        "3. **Category fit** — does it patch one of your weak spots, or punch a hole in a strength?\n"
+        "4. **Health** — always check the injury picture before you say yes\n\n"
+        "**The classic mistake:** trusting season stats over underlying quality. A .290 hitter with a "
+        ".330 xwOBA is worth more than a .305 hitter with a .270 xwOBA — the second guy's results are "
+        "living on borrowed time.\n\n"
+        "**Just ask** — \"Grade this trade: I give up [players], I get [players]\" — for a straight verdict "
+        "on value, rest-of-season, and category fit.\n\n"
+        "Tell me your league setup first if you haven't — trade advice gets a lot sharper once I know "
+        "your categories."
     ),
     "lineup": (
-        "**Weekly lineup decisions** — start/sit and streaming.\n\n"
-        "**Decision framework (in order of weight):**\n"
-        "1. **Health** — check `get_injuries` first; don't start an IL candidate\n"
-        "2. **Matchup** — pitcher quality and park factor matter more than short streaks\n"
-        "3. **Current form** — recent hot streaks are real but don't override terrible matchups\n"
-        "4. **Underlying metrics** — Statcast is the tiebreaker for borderline calls\n\n"
-        "**For pitchers:** two-start weeks >>> one-start weeks for streaming. "
-        "Check `get_probable_pitchers` for the full week first.\n\n"
-        "**Fastest path:** `weekly_lineup_review` prompt — paste your roster and it works through "
-        "form, matchups, and park factors to recommend starts/sits for the week."
+        "**Setting your lineup** — start/sit calls and streaming.\n\n"
+        "**How I rank the decision (most important first):**\n"
+        "1. **Health** — injury status first; never start a guy who's about to hit the IL\n"
+        "2. **Matchup** — pitcher quality and ballpark beat a short hot or cold streak\n"
+        "3. **Current form** — streaks are real, but they don't override an ugly matchup\n"
+        "4. **Underlying quality** — contact metrics are the tiebreaker on the close calls\n\n"
+        "**For pitchers:** a two-start week beats a one-start week every time when you're streaming — so "
+        "I'll scan the whole week's probables first.\n\n"
+        "**Just ask** — \"Set my lineup for the week: [roster]\" — and I'll work through form, matchups, "
+        "and ballparks to give you a clean start/sit board."
     ),
     "waivers": (
-        "**Waiver wire strategy** — ranking pickups by value.\n\n"
-        "**Prioritize in this order:**\n"
-        "1. Healthy (not on IL or day-to-day)\n"
-        "2. Recent hot form with underlying Statcast support\n"
-        "3. Favorable schedule for the next 2 weeks\n"
+        "**Working the waiver wire** — ranking pickups by what they're actually worth.\n\n"
+        "**The order I prioritize:**\n"
+        "1. Healthy (not on the IL or day-to-day)\n"
+        "2. Hot recent form that's backed by real contact quality\n"
+        "3. A favorable schedule over the next couple weeks\n"
         "4. Positional need and category fit\n\n"
-        "**Fastest path:** `waiver_targets` prompt — paste the available players from your waiver "
-        "page and get a ranked list with reasoning.\n\n"
-        "**FAAB tip:** bid on players with good underlying metrics + temporary bad results more "
-        "aggressively — that's where you beat competitors who only watch the box score."
+        "**Just ask** — \"Size up my waiver options: [players]\" — for a ranked list with the reasoning "
+        "spelled out.\n\n"
+        "**FAAB tip:** bid up on the guys with strong underlying metrics and temporary bad luck. That's "
+        "exactly where you beat the managers who only stare at the box score."
     ),
 }
 
-_GENERAL_HELP = """**StatsDeck — MLB Fantasy Assistant**
+_GENERAL_HELP = """**StatsDeck — your fantasy baseball edge**
 
-I give you live MLB data plus expert framing for fantasy decisions. Here's how to get the most out of me:
+I turn live MLB data into start/sit, trade, and waiver calls, with an eye on what the box score \
+misses: contact quality and regression — the difference between a hot streak that's real and one \
+that's about to crash. Here's how to get rolling:
 
-**Start here (one-time setup):**
-→ Call `set_league_profile()` with your league settings (scoring type, categories, daily/weekly lineups). Every prompt uses this to personalize its advice.
+**First, tell me your league** — scoring type, the categories you play, and whether lineups lock \
+daily or weekly. I'll tailor everything to it, and you won't have to repeat yourself.
 
-**Guided workflows (best starting points):**
-- `weekly_lineup_review` — full start/sit analysis for your roster; checks form, matchups, and park factors
-- `buy_low_finder` — find players whose Statcast quality exceeds their results (positive regression candidates)
-- `sell_high_finder` — find players outrunning their metrics (trade before regression hits)
-- `streaming_pitchers` — rank this week's free-agent starters by matchup, park, and skill
-- `trade_evaluator` — evaluate a trade on current value, underlying quality, and category fit
-- `waiver_targets` — rank your waiver wire options by production, metrics, and schedule
+**What I can do for you:**
+- **Set your lineup for the week** — start/sit across your roster (form + matchups + ballparks)
+- **Spot buy-low and sell-high guys** — who's about to heat up, and who's about to cool off
+- **Find the best streaming pitchers** — ranked by matchup, ballpark, and skill
+- **Grade a trade** — current value, rest-of-season outlook, and category fit
+- **Size up your waiver options** — ranked by production, quality, and schedule
 
-**Individual tools (for specific questions):**
-- "How has Aaron Judge been hitting lately?" → `get_player_recent`
-- "What are Freddie Freeman's Statcast numbers?" → `get_player_statcast`
-- "Who's pitching tonight?" → `get_probable_pitchers`
-- "Is Mookie Betts on the IL?" → `get_injuries`
-- "How hitter-friendly is Coors Field?" → `get_park_factors`
-- "Ohtani vs. Judge this month?" → `compare_players`
-
-**Example questions that work well:**
+**Or just ask me anything:**
 1. "My roster: [list players]. Help me set my lineup for this week."
 2. "I'm considering trading away [player A] for [player B] — is that a good deal?"
 3. "Who should I pick up on waivers? My options are: [list players]."
 4. "Is [player]'s hot streak real or a BABIP mirage?"
 5. "Who are good streaming pitchers this week?"
 
-For topic-specific tips, call `how_to_use("buy low")`, `how_to_use("streaming")`, etc."""
+Quick hits work too — "How's Aaron Judge been hitting lately?", "What's Freddie Freeman's contact \
+quality?", "Who's pitching tonight?", "Is Mookie Betts on the IL?", "How hitter-friendly is Coors?"
+
+Pick a play above or just name a player — let's get into it."""
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -706,7 +711,8 @@ def how_to_use(topic: str = "") -> dict:
     profile_note = (
         ""
         if profile
-        else "\n\n⚠️ **Profile not set.** Call `set_league_profile()` to unlock personalized advice."
+        else "\n\n💡 **Heads up:** I don't have your league yet. Tell me your scoring, categories, "
+        "and whether lineups lock daily or weekly, and every answer gets sharper."
     )
 
     content = (text or _GENERAL_HELP) + profile_note
@@ -716,7 +722,7 @@ def how_to_use(topic: str = "") -> dict:
         "source": "StatsDeck built-in guidance",
         "data": {"topic": topic_key or "general", "content": content},
         "suggestions": [
-            "Call set_league_profile() if you haven't — it makes every prompt significantly more useful."
+            "Tell me your league setup if you haven't yet — it makes every answer a lot sharper."
         ] if not profile else [],
     }
 
@@ -1132,13 +1138,12 @@ Then introduce StatsDeck and how to start, roughly like this and in StatsDeck's 
 trade, and waiver calls, with a focus on what the box score misses: contact quality and \
 regression — the difference between a real hot streak and one about to crash.
 
-**Guided workflows — pick one and jump in:**
-- **Weekly lineup review** — start/sit across your roster (form + matchups + park factors)
-- **Buy-low finder** — players whose contact quality is beating their results (positive regression)
-- **Sell-high finder** — players outrunning their metrics (move them before regression hits)
-- **Streaming pitchers** — rank the week's streamers by matchup, park, and skill
-- **Trade evaluator** — judge a deal against your categories and roster needs
-- **Waiver targets** — rank your waiver options by production, metrics, and schedule
+**Here's what I can do for you — pick one and jump in:**
+- **Set your lineup for the week** — start/sit across your roster (form + matchups + ballparks)
+- **Spot buy-low and sell-high guys** — who's about to heat up, and who's about to cool off
+- **Find the best streaming pitchers** — ranked by matchup, ballpark, and skill
+- **Grade a trade** — judge a deal against your categories and roster needs
+- **Size up your waiver options** — ranked by production, quality, and schedule
 
 **Or just ask naturally:**
 - "My roster: [players]. Set my lineup for this week."

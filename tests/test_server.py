@@ -87,8 +87,17 @@ def test_get_profile_no_profile(tmp_path, monkeypatch):
 def test_how_to_use_general():
     r = how_to_use()
     assert_shape(r, source_contains="StatsDeck")
-    assert "weekly_lineup_review" in r["data"]["content"]
-    assert "buy_low_finder" in r["data"]["content"]
+    content = r["data"]["content"]
+    # Capabilities are described in plain English, not by internal tool/prompt names.
+    assert "lineup" in content.lower()
+    assert "waiver" in content.lower()
+    # No internal function/prompt names should leak into user-facing help.
+    for internal in (
+        "weekly_lineup_review", "buy_low_finder", "sell_high_finder",
+        "streaming_pitchers", "trade_evaluator", "waiver_targets",
+        "set_league_profile()", "get_player_statcast",
+    ):
+        assert internal not in content, f"internal name leaked: {internal}"
 
 
 def test_how_to_use_topic_buy_low():
