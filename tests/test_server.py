@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 from server.main import (
     set_league_profile, get_league_profile, how_to_use,
-    get_player_season_stats, get_player_recent, get_player_statcast,
+    get_player_stats, get_player_statcast,
     get_probable_pitchers, get_injuries, get_park_factors, compare_players,
     resolve_player_name,
     weekly_lineup_review, buy_low_finder, sell_high_finder,
@@ -118,7 +118,7 @@ def test_how_to_use_fuzzy_topic():
 # ---------------------------------------------------------------------------
 
 def test_season_stats_structured():
-    r = get_player_season_stats("Shohei Ohtani", 2024)
+    r = get_player_stats("Shohei Ohtani", timeframe="season", season=2024)
     assert_shape(r, source_contains="MLB Stats API")
     assert "stats" in r["data"]
     assert len(r["suggestions"]) > 0
@@ -126,12 +126,25 @@ def test_season_stats_structured():
 
 
 def test_recent_games_structured():
-    r = get_player_recent("Freddie Freeman", 14)
+    r = get_player_stats("Freddie Freeman", timeframe="recent", days=14)
     assert_shape(r, source_contains="MLB Stats API")
     assert "games" in r["data"]
     assert "games_played" in r["data"]
     assert len(r["suggestions"]) > 0
     print(f"\nFreeman recent suggestion: {r['suggestions'][0]}")
+
+
+def test_get_player_stats_default_timeframe_is_recent():
+    # Default timeframe must preserve the old get_player_recent behavior.
+    r = get_player_stats("Freddie Freeman")
+    assert_shape(r, source_contains="MLB Stats API")
+    assert "games" in r["data"]
+
+
+def test_get_player_stats_bad_timeframe():
+    r = get_player_stats("Freddie Freeman", timeframe="lifetime")
+    assert r["success"] is False
+    assert "timeframe" in r["error"].lower()
 
 
 def test_statcast_structured():
@@ -188,7 +201,7 @@ def test_resolve_player_name():
 
 def test_tool_error_shape():
     """Errors should also have consistent shape."""
-    r = get_player_recent("Zzzzz Fakeplayer99", 7)
+    r = get_player_stats("Zzzzz Fakeplayer99", timeframe="recent", days=7)
     assert r["success"] is False
     assert "error" in r
 
@@ -204,7 +217,7 @@ PLAYERS = "Pete Alonso, Christian Yelich, Jorge Polanco"
 def test_prompt_weekly_lineup_review():
     p = weekly_lineup_review(roster=ROSTER)
     assert isinstance(p, str) and len(p) > 200
-    for keyword in ["get_player_recent", "get_probable_pitchers", "get_player_statcast",
+    for keyword in ["get_player_stats", "get_probable_pitchers", "get_player_statcast",
                     "start", "park"]:
         assert keyword in p, f"Missing keyword: {keyword}"
 
@@ -238,7 +251,7 @@ def test_prompt_trade_evaluator():
 def test_prompt_waiver_targets():
     p = waiver_targets(available_players=PLAYERS, roster_needs="need speed")
     assert "need speed" in p
-    for keyword in ["get_player_recent", "Tier 1", "Tier 2"]:
+    for keyword in ["get_player_stats", "Tier 1", "Tier 2"]:
         assert keyword in p, f"Missing keyword: {keyword}"
 
 

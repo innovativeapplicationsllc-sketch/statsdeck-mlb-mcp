@@ -728,76 +728,68 @@ def how_to_use(topic: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool: get_player_season_stats
+# Tool: get_player_stats  (recent form + full-season totals, one tool)
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def get_player_season_stats(player_name: str, season: int | None = None) -> dict:
+def get_player_stats(
+    player_name: str,
+    timeframe: str = "recent",
+    days: int = 14,
+    season: int | None = None,
+) -> dict:
     """
-    Get a player's full season batting or pitching statistics from the MLB Stats API.
+    Get a player's production stats over a chosen timeframe. One tool, two reads:
 
-    Best used as **context and baseline**: season stats tell you where a player
-    stands year-to-date, but they can mask hot/cold streaks and don't reveal
-    *why* a player is performing that way. Pair with get_player_recent (current
-    form) and get_player_statcast (underlying contact quality) for a full picture.
+    - **timeframe="recent"** (default): game-by-game stats over the last N `days` —
+      the primary signal for current form and hot/cold streaks. A 10–14 day window
+      captures momentum without over-indexing on one good or bad game. Use it for
+      start/sit timing, checking a pitcher's last two weeks before streaming, and
+      gauging trade value (hot = sell high, cold = potential buy-low).
+    - **timeframe="season"**: full-season batting or pitching totals — the
+      year-to-date baseline. Use it for context before a trade, for ERA/WHIP/K-rate
+      before streaming a pitcher, or to compare actual results against contact
+      quality (is the average propped up by a high BABIP?).
 
-    Useful for:
-    - Establishing a baseline before a trade evaluation
-    - Checking ERA/WHIP/K-rate before streaming a pitcher
-    - Comparing actual stats to Statcast expectations (is BA propped up by a high BABIP?)
+    Recent form tells you what's happening right now; season totals tell you the
+    baseline. For *why* a player is producing — whether it's real or luck — pair
+    this with get_player_statcast (contact quality).
 
     Args:
         player_name: Full player name (e.g. "Shohei Ohtani", "Spencer Strider")
-        season: Season year — defaults to current season. Use prior years for historical context.
+        timeframe: "recent" for game-by-game form (default), or "season" for full-season totals
+        days: Lookback window when timeframe="recent" (default 14; 7 for short-term heat,
+              30 for a broader trend). Ignored when timeframe="season".
+        season: Season year when timeframe="season" (defaults to current season; use prior
+                years for historical context). Ignored when timeframe="recent".
 
     Returns:
-        Standard counting and rate stats. Pitchers get ERA/WHIP/K9; batters get
-        AVG/OBP/SLG/OPS plus HR, RBI, SB, R. Source: MLB Stats API.
+        timeframe="recent": per-game stat lines with date, opponent, home/away.
+        timeframe="season": standard counting + rate stats — batters get AVG/OBP/SLG/OPS
+        plus HR, RBI, SB, R; pitchers get ERA/WHIP/K9. Source: MLB Stats API.
     """
-    return _wrap(mlb_stats.get_player_season_stats, player_name, season,
-                 suggester=_suggest_season_stats)
+    tf = (timeframe or "recent").strip().lower()
 
+    if tf in ("recent", "form", "recent_games", "last", "games"):
+        if days < 1 or days > 90:
+            return _err("days must be between 1 and 90")
+        result = _wrap(mlb_stats.get_player_recent, player_name, days,
+                       suggester=_suggest_recent)
+        if result.get("success") and "games" in result.get("data", {}):
+            games, note = _truncate_list(result["data"]["games"], _GAMES_LIMIT, "games")
+            result["data"]["games"] = games
+            if note:
+                result["data"]["truncation_note"] = note
+        return result
 
-# ---------------------------------------------------------------------------
-# Tool: get_player_recent
-# ---------------------------------------------------------------------------
+    if tf in ("season", "year", "full", "season_stats", "total", "totals"):
+        return _wrap(mlb_stats.get_player_season_stats, player_name, season,
+                     suggester=_suggest_season_stats)
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def get_player_recent(player_name: str, days: int = 14) -> dict:
-    """
-    Get a player's game-by-game stats over the last N days — the primary
-    signal for current form and hot/cold streak detection.
-
-    **Fantasy use cases:**
-    - **Start/sit timing:** A 10–14 day window captures momentum without
-      over-indexing on a single good or bad game.
-    - **Streaming decisions:** Check recent form before adding a pitcher
-      off the wire — a pitcher with a 6+ ERA over the past two weeks is
-      a streaming risk even with a favorable matchup.
-    - **Trade timing:** Recent form drives perceived value. A player on a
-      hot streak has maximum trade value right now; cold = potential buy-low.
-
-    **Important:** always pair with get_player_statcast to determine
-    whether a streak is real (good underlying metrics) or variance
-    (hot BABIP, soft contact falling in).
-
-    Args:
-        player_name: Full player name
-        days: Lookback window (default 14; 7 for short-term heat, 30 for broader trend)
-
-    Returns:
-        Per-game stat lines with date, opponent, home/away. Source: MLB Stats API.
-    """
-    if days < 1 or days > 90:
-        return _err("days must be between 1 and 90")
-    result = _wrap(mlb_stats.get_player_recent, player_name, days,
-                   suggester=_suggest_recent)
-    if result.get("success") and "games" in result.get("data", {}):
-        games, note = _truncate_list(result["data"]["games"], _GAMES_LIMIT, "games")
-        result["data"]["games"] = games
-        if note:
-            result["data"]["truncation_note"] = note
-    return result
+    return _err(
+        f"Unknown timeframe '{timeframe}'. Use 'recent' for game-by-game form "
+        "or 'season' for full-season totals."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -897,7 +889,7 @@ def get_batter_vs_pitcher(batter: str, pitcher: str) -> dict:
 
     **Caveat:** Early in the season, sample sizes are very small. Under 10 PA,
     treat this as directional only — weight get_player_statcast and
-    get_player_recent more heavily.
+    get_player_stats (recent form) more heavily.
 
     Args:
         batter: Batter's full name (e.g. "Freddie Freeman")
@@ -1061,16 +1053,19 @@ def compare_players(player_a: str, player_b: str, days: int = 14) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool: resolve_player_name
+# Internal helper: resolve_player_name (NOT a tool — no permission prompt)
+#
+# Name disambiguation already happens inside every data tool via
+# player_resolver.require_player(). This wrapper stays available as an internal
+# helper that returns the structured {success, data, ...} shape, but it is no
+# longer registered as a user-facing MCP tool.
 # ---------------------------------------------------------------------------
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 def resolve_player_name(player_name: str) -> dict:
     """
-    Resolve a player name to their MLBAM and FanGraphs IDs.
+    Resolve a player name to their MLBAM and FanGraphs IDs (internal helper).
 
-    Use this when a name lookup in another tool returns ambiguous or unexpected
-    results. Disambiguates players with the same last name and handles common
+    Disambiguates players with the same last name and handles common
     misspellings. Returns the best match plus up to 4 alternatives.
 
     Args:
@@ -1202,7 +1197,7 @@ def weekly_lineup_review(
 Work through this step by step:
 
 **Step 1 — Current form (call for each player):**
-Call `get_player_recent(player_name, days=10)` for every player listed. Flag anyone with fewer than 3 hits over the past 10 days (cold) or 5+ multi-hit/multi-RBI games (hot).
+Call `get_player_stats(player_name, timeframe="recent", days=10)` for every player listed. Flag anyone with fewer than 3 hits over the past 10 days (cold) or 5+ multi-hit/multi-RBI games (hot).
 
 **Step 2 — Weekly schedule:**
 Call `get_probable_pitchers()` for {week_start} and each subsequent day through {week_end}. Map which pitchers each of my hitters faces. Note:
@@ -1252,8 +1247,8 @@ The goal is to find players whose *underlying contact quality* is strong but who
 
 **For each player, pull:**
 1. `get_player_statcast(player_name, days=21)` — the core signal: xwOBA, barrel rate, hard-hit%
-2. `get_player_season_stats(player_name)` — actual results to compare against expected quality
-3. `get_player_recent(player_name, days=14)` — is the slump recent or a longer pattern?
+2. `get_player_stats(player_name, timeframe="season")` — actual results to compare against expected quality
+3. `get_player_stats(player_name, timeframe="recent", days=14)` — is the slump recent or a longer pattern?
 
 **Buy-low signals to look for:**
 - **xwOBA ≥ .360 but weak counting stats or batting average** → hard contact not producing results yet; positive regression likely
@@ -1295,8 +1290,8 @@ The goal is to find players whose *surface results are outrunning their underlyi
 
 **For each player, pull:**
 1. `get_player_statcast(player_name, days=21)` — check if the quality supports the results
-2. `get_player_season_stats(player_name)` — full season context, especially BABIP and HR/FB rate
-3. `get_player_recent(player_name, days=14)` — is this a recent hot streak or sustained performance?
+2. `get_player_stats(player_name, timeframe="season")` — full season context, especially BABIP and HR/FB rate
+3. `get_player_stats(player_name, timeframe="recent", days=14)` — is this a recent hot streak or sustained performance?
 
 **Sell-high signals to look for:**
 - **Low xwOBA (≤ .310) but strong batting average** → BABIP propping up results; this is luck, not skill
@@ -1374,8 +1369,8 @@ Prioritize pitchers starting in: Petco Park (SD), Oracle Park (SF), T-Mobile Par
 
 **Step 3 — Pitcher quality check:**
 For the top 8–10 candidates remaining, call:
-- `get_player_season_stats(pitcher_name)` — confirm ERA < 4.50, WHIP < 1.35 as baseline
-- `get_player_recent(pitcher_name, days=14)` — flag anyone on a recent bad run (e.g., 2+ starts with 4+ ER)
+- `get_player_stats(pitcher_name, timeframe="season")` — confirm ERA < 4.50, WHIP < 1.35 as baseline
+- `get_player_stats(pitcher_name, timeframe="recent", days=14)` — flag anyone on a recent bad run (e.g., 2+ starts with 4+ ER)
 
 **Step 4 — Rank and recommend:**
 
@@ -1431,8 +1426,8 @@ def trade_evaluator(giving_up: str, getting: str) -> str:
 **Pull data for every player on both sides ({', '.join(all_players)}):**
 
 For each player:
-1. `get_player_season_stats(player_name)` — year-to-date production and baseline
-2. `get_player_recent(player_name, days=14)` — current form going into the trade
+1. `get_player_stats(player_name, timeframe="season")` — year-to-date production and baseline
+2. `get_player_stats(player_name, timeframe="recent", days=14)` — current form going into the trade
 3. `get_player_statcast(player_name, days=21)` — underlying quality (is the production sustainable?)
 4. `get_injuries(player_name)` — **always check before accepting** — never accept an imminent IL candidate
 
@@ -1498,9 +1493,9 @@ def waiver_targets(available_players: str, roster_needs: str = "") -> str:
 
 **Gather data for each player ({', '.join(players[:8])}{' and others' if len(players) > 8 else ''}):**
 
-1. `get_player_recent(player_name, days=14)` — recent form (highest weight)
+1. `get_player_stats(player_name, timeframe="recent", days=14)` — recent form (highest weight)
 2. `get_player_statcast(player_name, days=21)` — is the form backed by real contact quality?
-3. `get_player_season_stats(player_name)` — full season context (not just a hot week)
+3. `get_player_stats(player_name, timeframe="season")` — full season context (not just a hot week)
 4. `get_injuries(player_name)` — confirm healthy and active before ranking highly
 5. For pitchers: `get_probable_pitchers()` for upcoming starts, `get_park_factors(team)` for their home park
 
