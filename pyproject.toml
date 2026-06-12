@@ -21,6 +21,8 @@ dependencies = [
     "redis>=5.0.0",
     # JWT validation for Clerk OAuth tokens
     "PyJWT[crypto]>=2.8.0",
+    # Postgres driver for usage analytics (harmless when DATABASE_URL isn't set)
+    "psycopg[binary]>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +36,7 @@ dev = [
 mlb-mcp = "server.main:run"
 
 [tool.hatch.build.targets.wheel]
-packages = ["server", "sources", "cache"]
+packages = ["server", "sources", "cache", "analytics"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

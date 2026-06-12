@@ -15,11 +15,43 @@ import json
 import logging
 import os
 import time
+from contextvars import ContextVar
 from functools import wraps
 from threading import RLock
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Per-call cache hit/miss accounting (read by usage analytics).
+#
+# This is additive instrumentation only — it never changes what get()/set()
+# return or how caching behaves. An instrumented tool calls reset_cache_stats()
+# at entry, the data layer's get() lookups tally into a contextvar, and the tool
+# reads get_cache_stats() to record cache_hit. The contextvar defaults to None,
+# so any cache use outside an instrumented tool simply isn't counted.
+# ---------------------------------------------------------------------------
+
+_cache_stats: ContextVar[dict | None] = ContextVar("_cache_stats", default=None)
+
+
+def reset_cache_stats() -> None:
+    """Begin a fresh hit/miss tally for the current call context."""
+    _cache_stats.set({"hits": 0, "misses": 0})
+
+
+def get_cache_stats() -> tuple[int, int]:
+    """Return (hits, misses) tallied since the last reset; (0, 0) if not tracking."""
+    stats = _cache_stats.get()
+    if not stats:
+        return (0, 0)
+    return (stats["hits"], stats["misses"])
+
+
+def _record_lookup(hit: bool) -> None:
+    stats = _cache_stats.get()
+    if stats is not None:
+        stats["hits" if hit else "misses"] += 1
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +211,9 @@ _backend = _build_backend()
 # ---------------------------------------------------------------------------
 
 def get(key: str) -> Any | None:
-    return _backend.get(key)
+    value = _backend.get(key)
+    _record_lookup(value is not None)
+    return value
 
 
 def set(key: str, value: Any, ttl: int) -> None:

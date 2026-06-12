@@ -176,7 +176,82 @@ All TTLs configurable via env vars (see `.env.example`). Cache stored in `cache/
 ```
 
 - `tests/test_data_layer.py` — data sources in isolation (hits real APIs, ~30s)
-- `tests/test_server.py` — MCP tool responses + all 6 prompt content checks (~3s, mostly offline)
+- `tests/test_server.py` — MCP tool responses + all prompt content checks (~3s, mostly offline)
+- `tests/test_usage_analytics.py` — usage logging behavior & safety (no DB needed, ~0.5s)
+
+---
+
+## Usage analytics
+
+Per-user usage logging backed by Postgres. It is **fully additive and invisible**:
+every tool/prompt invocation records one event on a background thread. If the
+database is unreachable or `DATABASE_URL` is unset, **tool calls still succeed and
+return normally** — events are dropped and the failure is logged server-side. The
+on-request cost is ~5µs (just queuing a dict); all DB I/O is off the request path.
+
+Discovery requests (ListTools/ListPrompts) are **never** recorded — only real user
+activity (`event_type` = `tool_call` or `prompt_used`).
+
+### 1. Set the env var (Railway)
+
+Add a Postgres database to the project (**New → Database → Postgres**), then on the
+**StatsDeck service** add a reference variable:
+
+```
+DATABASE_URL = ${{Postgres.DATABASE_URL}}
+```
+
+That's the only variable to set. It's read from env, never hardcoded. Unset it to
+turn analytics off completely.
+
+### 2. Create the table (once, reproducible migration)
+
+```bash
+DATABASE_URL=postgresql://...  python -m analytics.migrate
+```
+
+Idempotent — creates `usage_events` plus indexes on `user_id`, `created_at`,
+`(user_id, created_at)`, `tool_name`, and `event_type`. Schema lives in
+`analytics/schema.sql`. On Railway, run it from the service shell (where
+`DATABASE_URL` is already set).
+
+### 3. Export data for analysis
+
+`scripts/export_usage.py` writes a clean CSV and/or JSON, with optional date-range
+and user filters:
+
+```bash
+python scripts/export_usage.py                                  # all → usage_export.csv
+python scripts/export_usage.py --start 2026-06-01 --end 2026-06-11
+python scripts/export_usage.py --user user_2abc... --format json --out alice.json
+python scripts/export_usage.py --event-type tool_call --format both --out june
+```
+
+### 4. Ready-made analytics queries
+
+`scripts/run_analytics.py` runs named queries from `scripts/analytics_queries.sql`
+with aligned table output:
+
+```bash
+python scripts/run_analytics.py --list            # dau, wau, calls-per-user,
+                                                  # tool-popularity, error-rate,
+                                                  # error-types, cache-hit-rate, user-history
+python scripts/run_analytics.py dau               # daily active users (30d)
+python scripts/run_analytics.py wau               # weekly active users (12w)
+python scripts/run_analytics.py calls-per-user    # total tool calls per user
+python scripts/run_analytics.py tool-popularity   # most/least used tools
+python scripts/run_analytics.py error-rate        # overall + per-tool error rate
+python scripts/run_analytics.py user-history --user user_2abc...
+python scripts/run_analytics.py all               # everything except user-history
+```
+
+Or run the SQL directly: `psql "$DATABASE_URL" -f scripts/analytics_queries.sql`.
+
+### Privacy
+
+Only non-sensitive data is logged: tool/prompt name, sport, the Clerk `user_id`,
+and small scalar query params (player queried, timeframe, days). No free-text and
+nothing more sensitive. (Disclose usage logging in the privacy policy.)
 
 ---
 

@@ -41,6 +41,7 @@ from starlette.routing import Route
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from analytics import instrument_tool, instrument_prompt
 from sources import mlb_stats, savant
 from sources.player_resolver import resolve_player
 from sources.profile import (
@@ -460,6 +461,7 @@ def _suggest_compare(data: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+@instrument_tool
 def set_league_profile(
     scoring_type: str,
     lineup_lock: str = "daily",
@@ -536,6 +538,7 @@ def set_league_profile(
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_league_profile() -> dict:
     """
     Retrieve your stored league settings.
@@ -682,6 +685,7 @@ Pick a play above or just name a player — let's get into it."""
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def how_to_use(topic: str = "") -> dict:
     """
     Get guidance on using StatsDeck — available workflows, example questions, and expert tips.
@@ -732,6 +736,7 @@ def how_to_use(topic: str = "") -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_player_stats(
     player_name: str,
     timeframe: str = "recent",
@@ -797,6 +802,7 @@ def get_player_stats(
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_player_statcast(player_name: str, days: int = 14) -> dict:
     """
     Get Statcast quality-of-contact metrics for a player over the last N days.
@@ -836,6 +842,7 @@ def get_player_statcast(player_name: str, days: int = 14) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_probable_pitchers(game_date: str | None = None) -> dict:
     """
     Get probable starting pitchers for every game on a given date.
@@ -874,6 +881,7 @@ def get_probable_pitchers(game_date: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_batter_vs_pitcher(batter: str, pitcher: str) -> dict:
     """
     Get head-to-head Statcast data for a specific batter vs. pitcher matchup.
@@ -908,6 +916,7 @@ def get_batter_vs_pitcher(batter: str, pitcher: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_injuries(team_or_player: str | None = None) -> dict:
     """
     Get current injured list (IL) status for a team or player.
@@ -952,6 +961,7 @@ def get_injuries(team_or_player: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def get_park_factors(stadium_or_team: str) -> dict:
     """
     Get park factor data — how much a ballpark inflates or suppresses offense
@@ -985,6 +995,7 @@ def get_park_factors(stadium_or_team: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@instrument_tool
 def compare_players(player_a: str, player_b: str, days: int = 14) -> dict:
     """
     Compare two players side-by-side: recent form (MLB Stats API) + underlying
@@ -1095,6 +1106,7 @@ def resolve_player_name(player_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.prompt()
+@instrument_prompt
 def getting_started() -> str:
     """
     Start here. The "I just connected — what now?" onboarding entry point.
@@ -1155,6 +1167,7 @@ Baseball Savant), and note StatsDeck analyzes MLB's data and isn't affiliated wi
 
 
 @mcp.prompt()
+@instrument_prompt
 def weekly_lineup_review(
     roster: str,
     week_start: str = "",
@@ -1227,6 +1240,7 @@ Weight all decisions toward these categories — **hitting: {', '.join(h_cats)} 
 
 
 @mcp.prompt()
+@instrument_prompt
 def buy_low_finder(players: str) -> str:
     """
     Identify positive regression candidates — players whose contact quality exceeds their results.
@@ -1270,6 +1284,7 @@ Rank by strength of buy-low signal, strongest first."""
 
 
 @mcp.prompt()
+@instrument_prompt
 def sell_high_finder(players: str) -> str:
     """
     Identify negative regression candidates — players outrunning their underlying metrics.
@@ -1314,6 +1329,7 @@ Rank by urgency — the most-likely-to-crash players first."""
 
 
 @mcp.prompt()
+@instrument_prompt
 def streaming_pitchers(
     start_date: str = "",
     end_date: str = "",
@@ -1391,6 +1407,7 @@ Optimize toward: **{priorities}** and **{', '.join(p_cats)}**."""
 
 
 @mcp.prompt()
+@instrument_prompt
 def trade_evaluator(giving_up: str, getting: str) -> str:
     """
     Evaluate a trade offer across current value, underlying quality, and category fit.
@@ -1459,6 +1476,7 @@ Map each player's contributions to **{', '.join(h_cats + p_cats)}**. Specificall
 
 
 @mcp.prompt()
+@instrument_prompt
 def waiver_targets(available_players: str, roster_needs: str = "") -> str:
     """
     Rank waiver wire pickups by recent production, Statcast quality, schedule, and fit.
