@@ -264,6 +264,22 @@ nothing more sensitive. (Disclose usage logging in the privacy policy.)
 
 ---
 
+## Roster awareness (roadmap)
+
+Turning generic player lookups into team-aware decisions, in layers:
+
+- [x] **Layer 1 — in-conversation roster (shipped).** Onboarding invites the user to paste their
+  roster (and any waiver/free-agent players they're eyeing); StatsDeck reasons over it as their
+  actual team for the rest of that chat, framing answers as start/sit and add/drop decisions.
+  Text-only — lives entirely in conversation context, no storage. Includes staleness-honesty
+  guidance (confirm the lineup's still current rather than assuming).
+- [ ] **Layer 2 — persistence.** Save the roster across sessions via the league-profile store so
+  users don't re-paste each conversation.
+- [ ] **Layer 3 — live roster fetch.** Pull rosters directly from the league platform (Sleeper
+  league ID / Yahoo OAuth / ESPN cookie).
+
+Written sport-neutral so the same invitation and roster-aware behavior carry to NFL and soccer.
+
 ## Paid-product punch list for the league profile storage
 
 Everything in the beta stores profiles as local JSON, keyed by a `user_id` that is currently always `"default"`. To go multi-tenant:

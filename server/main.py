@@ -180,6 +180,24 @@ _INSTRUCTIONS = (
     "specific requests. Orientation is ONLY for genuinely vague or empty openers. The rule of "
     "thumb: almost any reasonable first message that ISN'T a specific question should land the "
     "user in a helpful orientation; specific questions go straight to the answer.\n\n"
+    "ROSTER AWARENESS — TURN LOOKUPS INTO DECISIONS: Users get sharper, team-specific advice "
+    "when they paste their roster, so invite it (once, lightly — see the orientation guidance — "
+    "never nag). When a user HAS pasted their roster (and/or the free agents or waiver players "
+    "they're eyeing) in THIS conversation, treat that as their actual team for the rest of the "
+    "chat. Lead with DECISIONS, not lookups — 'start A over B at your flex this week' or 'drop C "
+    "for that waiver guy', not just two stat lines sitting side by side — whenever the roster "
+    "makes a real call possible. On open questions ('who should I start?', 'any moves to make?'), "
+    "reason over THEIR roster plus any available players they named, and apply their league "
+    "scoring and categories if you know them. Keep the existing next-step habit in roster context: "
+    "after a start/sit read, point them at a relevant waiver, buy-low, or sell-high angle. "
+    "STALENESS HONESTY: rosters churn weekly through waivers and trades — if meaningful time "
+    "seems to have passed, or the user references a move, lightly confirm the lineup's still "
+    "current ('still your lineup, or did you make any moves?') before advising, rather than "
+    "assuming. Mirror StatsDeck's refuse-to-guess discipline here, but keep it light, not "
+    "paranoid. This roster context lives only in the current conversation for now — if it comes "
+    "up naturally you can say something like 'paste it again next time and I'll pick right back "
+    "up,' but don't over-explain it or make it sound clunky. Keep all of this sport-neutral in "
+    "spirit (it works for any fantasy roster); MLB examples are fine while MLB is what's live.\n\n"
     "BRAND VOICE: In everyday conversation refer to the numbers as StatsDeck's analysis — "
     "e.g. 'StatsDeck's contact-quality metrics', 'your StatsDeck numbers', 'StatsDeck's read "
     "on this matchup'. Don't preface routine answers by name-dropping upstream data feeds; "
@@ -664,6 +682,13 @@ that's about to crash. Here's how to get rolling:
 **First, tell me your league** — scoring type, the categories you play, and whether lineups lock \
 daily or weekly. I'll tailor everything to it, and you won't have to repeat yourself.
 
+**And if you want team-specific calls, paste your roster.** Copy it straight from your league app \
+— however it's laid out, bench and positions and all, no cleanup needed — and I'll turn generic \
+lookups into real start/sit and add/drop decisions for *your* team. Toss in any waiver or \
+free-agent guys you're eyeing and I'll stack your roster against what's available. Totally \
+optional, and just for this conversation for now — paste it again next time and I'll pick right \
+back up.
+
 **What I can do for you:**
 - **Set your lineup for the week** — start/sit across your roster (form + matchups + ballparks)
 - **Spot buy-low and sell-high guys** — who's about to heat up, and who's about to cool off
@@ -760,6 +785,10 @@ def get_player_stats(
     baseline. For *why* a player is producing — whether it's real or luck — pair
     this with get_player_statcast (contact quality).
 
+    If the user has pasted their roster in this conversation, frame the read around
+    THEIR team — start/sit, add/drop, or who-to-target — instead of just reciting
+    the line. If this player is on their roster, make the call for them.
+
     Args:
         player_name: Full player name (e.g. "Shohei Ohtani", "Spencer Strider")
         timeframe: "recent" for game-by-game form (default), or "season" for full-season totals
@@ -824,6 +853,11 @@ def get_player_statcast(player_name: str, days: int = 14) -> dict:
     **Baseball Savant is the ONLY source for Statcast data.**
     Responses are cached 3 hours to respect rate limits.
 
+    If the user has pasted their roster in this conversation, turn the read into a
+    decision for THEIR team — buy-low/hold if this player is theirs and the contact
+    quality says regression is coming, or a who-to-target call if he's a free agent
+    they're eyeing — not just a metrics dump.
+
     Args:
         player_name: Full player name
         days: Lookback window (default 14; use 21–30 for more stable sample)
@@ -858,6 +892,10 @@ def get_probable_pitchers(game_date: str | None = None) -> dict:
 
     For a full streaming analysis (opponent quality + park + pitcher skill),
     use the streaming_pitchers prompt instead of this tool alone.
+
+    If the user has pasted their roster in this conversation, map these matchups
+    onto THEIR hitters and pitchers — flag the start/sit and streaming calls for
+    their actual team rather than just listing the day's arms.
 
     Args:
         game_date: Date in YYYY-MM-DD format. Defaults to today.
@@ -899,6 +937,10 @@ def get_batter_vs_pitcher(batter: str, pitcher: str) -> dict:
     treat this as directional only — weight get_player_statcast and
     get_player_stats (recent form) more heavily.
 
+    If the user has pasted their roster in this conversation, turn this into a
+    start/sit call for THEIR hitter against tonight's arm rather than a neutral
+    matchup readout.
+
     Args:
         batter: Batter's full name (e.g. "Freddie Freeman")
         pitcher: Pitcher's full name (e.g. "Zack Wheeler")
@@ -928,6 +970,10 @@ def get_injuries(team_or_player: str | None = None) -> dict:
       attractive fill-in options with elevated playing time.
     - **Trade due diligence:** Always check IL status before accepting a trade —
       "acquiring" a player who's about to go on the 60-day IL is a common trap.
+
+    If the user has pasted their roster in this conversation, tie the IL news back
+    to THEIR team — who needs replacing and a fill-in to target — rather than just
+    reporting the status.
 
     Args:
         team_or_player: Team name or abbreviation (e.g. "Dodgers", "LAD"),
@@ -978,6 +1024,10 @@ def get_park_factors(stadium_or_team: str) -> dict:
     - **Waiver pickups:** All else equal, prefer hitters on teams that play
       half their home games in offense-friendly parks.
 
+    If the user has pasted their roster in this conversation, apply the park read to
+    THEIR players and targets — a start/sit nudge or a who-to-target lean — instead
+    of a standalone park rating.
+
     Args:
         stadium_or_team: Stadium name (e.g. "Coors Field") or team abbreviation
                          (e.g. "COL"). Fuzzy matching handles common variations.
@@ -1011,6 +1061,10 @@ def compare_players(player_a: str, player_b: str, days: int = 14) -> dict:
       elite xwOBA is a hold; a hot player with 3% barrel rate is a sell-high.
     - **Pre-trade due diligence:** Quick side-by-side before committing to
       a trade. Use trade_evaluator prompt for deeper analysis with category fit.
+
+    If the user has pasted their roster in this conversation, land the comparison on
+    a decision for THEIR team — start A over B, drop one for the other, or which to
+    target off waivers — not just a neutral side-by-side.
 
     Args:
         player_a: First player's full name
@@ -1152,13 +1206,23 @@ regression — the difference between a real hot streak and one about to crash.
 - **Grade a trade** — judge a deal against your categories and roster needs
 - **Size up your waiver options** — ranked by production, quality, and schedule
 
+**Want team-specific calls? Paste your roster.** Copy it straight from your league app — \
+however it's laid out, bench and positions and all, no cleanup needed — and I'll give you real \
+start/sit and add/drop decisions instead of generic player lookups. Drop in any waiver or \
+free-agent guys you're eyeing too, and I'll stack your roster up against what's out there. \
+Totally optional — I'm great for one-off player questions either way; the roster just unlocks \
+the "what should I actually do" layer.
+
 **Or just ask naturally:**
 - "My roster: [players]. Set my lineup for this week."
 - "Is [player]'s hot streak real or about to crash?"
 - "Should I trade [player A] for [player B]?"
 - "Who should I stream this week?"
 
-Close by asking which workflow I'd like to start with, or invite me to paste my roster.
+Extend that roster invitation warmly and keep it low-pressure — invite, don't nag. Mention \
+lightly that for now the roster rides along with this conversation, so a quick "paste it again \
+next time and I'll pick right back up" is all the explanation it needs. Then close by asking \
+which workflow I'd like to start with, or invite me to paste my roster.
 
 Stay in StatsDeck's voice — lead with StatsDeck's analysis and don't preface anything with \
 upstream data-feed names. If I ask where the data comes from, answer honestly (MLB Stats API \
